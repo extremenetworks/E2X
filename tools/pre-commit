@@ -1,0 +1,97 @@
+#!/bin/sh
+#
+# A script to verify what is about to be committed.
+# Called by "git commit" with no arguments.  The hook should
+# exit with non-zero status after issuing an appropriate message if
+# it wants to stop the commit.
+#
+# For the git user: Copy this script to e2x project's .git/hooks/ folder.
+# To bypass this script run 'git commit --no-verify ...'
+#
+# Copyright Joerg Mayer <jmayer@loplof.de>
+# Licensed under GPLv2 or newer, see http://www.gnu.org/licenses/
+
+check_file_whitespace_errors()
+{
+	# If there are whitespace errors, print the offending file names and fail.
+	git diff-index --check --cached HEAD --
+	if [ $? -ne 0 ]; then
+		error=1
+	fi
+}
+
+check_filename_valid()
+{
+	# If you want to allow non-ASCII filenames set this variable to true.
+	allownonascii=$(git config hooks.allownonascii)
+
+	# Cross platform projects tend to avoid non-ASCII filenames; prevent
+	# them from being added to the repository. We exploit the fact that the
+	# printable range starts at the space character and ends with tilde.
+	if [ "$allownonascii" = "true" ]; then
+		return
+	fi
+
+	# Note that the use of brackets around a tr range is ok here, (it's
+	# even required, for portability to Solaris 10's /usr/bin/tr), since
+	# the square bracket bytes happen to fall in the designated range.
+	bad_files=$(git diff --cached --name-only --diff-filter=ACR -z HEAD |
+		tr -d '\0' | LC_ALL=C grep '[^ -~]')
+	if [ -n "$bad_files" ]; then
+		echo
+		echo "$bad_files"
+		echo " Attempt to add a non-ASCII file name. This can cause problems if"
+		echo " you want to work with people on other platforms. To be portable"
+		echo " it is advisable to rename the file. If you know what you are"
+		echo " doing you can disable this check using:"
+		echo " git config hooks.allownonascii true"
+		echo
+		error=1
+	fi
+}
+
+check_pep8()
+{
+	commit_files=$(git diff --cached --name-only HEAD | grep '.py$')
+	if [ -z "$commit_files" ]; then
+		return
+	fi
+	# FIXME: This currently fails with filenames containing spaces
+	bad_pep8=$(pep8 $commit_files 2>&1)
+	if [ $? -ne 0 ]; then
+		error=1
+		echo
+		echo "PEP8 error(s):"
+		echo "$bad_pep8"
+		echo
+	fi
+}
+
+######################## Main #######################################
+
+# Redirect output to stderr.
+exec 1>&2
+
+error=0
+
+if [ -z $GIT_DIR ]; then GIT_DIR=".git"; fi
+# Check for newer versions of the pre-commit script
+if [ ${GIT_DIR}/hooks/pre-commit -ot ./tools/pre-commit ]; then
+	echo
+	echo "Pre-commit hook script is outdated, please update!"
+	echo "  This is a warning, not an error."
+	echo
+fi
+
+check_filename_valid
+check_file_whitespace_errors
+check_pep8
+
+if [ $error -ne 0 ]; then
+	echo
+	echo "Exiting with error, no commit has been done!"
+	echo
+	exit 1
+fi
+
+exit 0
