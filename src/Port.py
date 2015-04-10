@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -80,7 +80,8 @@ class Port:
         description += 'STP Admin Edge: ' + str(self._stp_edge[0]) + ', '
         description += 'STP BPDU Guard: ' + str(self._stp_bpdu_guard[0]) + ', '
         description += 'STP BPDU Guard Recovery Time: '
-        description += str(self._stp_bpdu_guard_recovery_time[0])
+        description += str(self._stp_bpdu_guard_recovery_time[0]) + ', '
+        description += 'Inbound ACL: ' + str(self._ipv4_acl_in[0])
         return description
 
     def init_conf_values(self):
@@ -98,6 +99,7 @@ class Port:
         self._stp_edge = (None, None)
         self._stp_bpdu_guard = (None, None)
         self._stp_bpdu_guard_recovery_time = (None, None)
+        self._ipv4_acl_in = ([], None)
 
     def is_configured(self):
         configured = False
@@ -110,7 +112,14 @@ class Port:
                 self._short_description[1] == reason or
                 self._jumbo[1] == reason or
                 self._lacp_enabled[1] == reason or
-                self._lacp_aadminkey[1] == reason):
+                self._lacp_aadminkey[1] == reason or
+                self._stp_enabled[1] == reason or
+                # ignore auto-edge feature
+                #self._stp_auto_edge[1] == reason or
+                self._stp_edge[1] == reason or
+                self._stp_bpdu_guard[1] == reason or
+                self._stp_bpdu_guard_recovery_time[1] == reason or
+                self._ipv4_acl_in[1] == reason):
             configured = True
         return configured
 
@@ -294,15 +303,48 @@ class Port:
         self._stp_bpdu_guard_recovery_time = (rec_time, reason)
         return self._stp_bpdu_guard_recovery_time[0]
 
+    def get_ipv4_acl_in(self):
+        return self._ipv4_acl_in[0]
+
+    def get_ipv4_acl_in_reason(self):
+        return self._ipv4_acl_in[1]
+
+    def set_ipv4_acl_in(self, acl_id, reason):
+        tmp_acl_lst = [acl_id]
+        self._ipv4_acl_in = (tmp_acl_lst, reason)
+        return self._ipv4_acl_in[0]
+
+    def add_ipv4_acl_in(self, acl_id, reason):
+        if acl_id not in self._ipv4_acl_in[0]:
+            tmp_acl_lst = self._ipv4_acl_in[0]
+            tmp_acl_lst.append(acl_id)
+            self._ipv4_acl_in = (tmp_acl_lst, reason)
+        return self._ipv4_acl_in[0]
+
+    def del_ipv4_acl_in(self, acl_id, reason):
+        tmp_acl_lst = self._ipv4_acl_in[0]
+        if acl_id in tmp_acl_lst:
+            tmp_acl_lst.remove(acl_id)
+        self._ipv4_acl_in = (tmp_acl_lst, reason)
+        return self._ipv4_acl_in[0]
+
     def is_equivalent(self, port):
         """Returns True if given port can be used in the same role as this."""
+        # prefer identical ports
         if (self._connector == port.get_connector() and
                 self._allowed_speeds == port.get_possible_speeds()):
             return True
+        # prefer ports with same connector in use and same speeds
         elif (self._connector_used == port.get_connector_used() and
               self._allowed_speeds == port.get_possible_speeds()):
             return True
+        # accept ports with same connector in use and same maximum speeds
         elif (self._connector_used == port.get_connector_used() and
+              max(self._allowed_speeds) == max(port.get_possible_speeds())):
+            return True
+        # accept use of combo port for SFP port if same maximum speed
+        elif (self._connector == 'combo' and port.get_connector() == 'sfp'
+              and
               max(self._allowed_speeds) == max(port.get_possible_speeds())):
             return True
         else:
@@ -417,5 +459,12 @@ class Port:
                  else reason_conf)
             self._stp_bpdu_guard_recovery_time = \
                 (t_stp_bpdu_guard_recovery_time, t_reason)
+
+        t_ipv4_acl_in = from_port.get_ipv4_acl_in()
+        if t_ipv4_acl_in is not None and self._ipv4_acl_in[0] != t_ipv4_acl_in:
+            if from_port.get_ipv4_acl_in_reason() == 'default':
+                self._ipv4_acl_in = (t_ipv4_acl_in, reason_def)
+            else:
+                self._ipv4_acl_in = (t_ipv4_acl_in, reason_conf)
 
 # vim:filetype=python:expandtab:shiftwidth=4:tabstop=4

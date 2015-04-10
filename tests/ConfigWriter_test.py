@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -186,7 +186,8 @@ class ConfigWriter_test(unittest.TestCase):
             ([], [expErrStr.format('port'),
                   expErrStr.format('LAG'),
                   expErrStr.format('VLAN'),
-                  expErrStr.format('STP')
+                  expErrStr.format('STP'),
+                  expErrStr.format('ACL'),
                   ])
 
         self.cw.check_unwritten = MagicMock(return_value=[])

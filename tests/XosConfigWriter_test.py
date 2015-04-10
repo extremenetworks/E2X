@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -32,10 +32,13 @@ sys.path.extend(['../src'])
 
 import Port
 import Switch
+import XOS
 import XOS_write
 import VLAN
 import LAG
 import STP
+from ACL import ACL
+from ACL import ACE
 
 from unittest.mock import MagicMock
 
@@ -75,6 +78,7 @@ class XosConfigWriter_test(unittest.TestCase):
 
         cls.mockSwitch = MagicMock(spec=Switch.Switch)
         cls.mockSwitch.get_ports.return_value = [cls.mockPort]
+        cls.mockSwitch.is_stack.return_value = False
 
         cls.confPortsStr = 'configure ports ' + cls.portName
         cls.enablePortsStr = 'enable ports ' + cls.portName
@@ -84,6 +88,8 @@ class XosConfigWriter_test(unittest.TestCase):
         cls.confPortsDescrStr = cls.confPortsStr + ' description-string ""'
         cls.disableJumboStr = 'disable jumbo-frame ports ' + cls.portName
         cls.enableJumboStr = 'enable jumbo-frame ports ' + cls.portName
+        cls.confAcl42Str = ('configure access-list acl_42 ports ' +
+                            cls.portName + ' ingress')
 
         cls.WarningStart = 'WARN: '
         cls.ErrorStart = 'ERROR: '
@@ -96,6 +102,12 @@ class XosConfigWriter_test(unittest.TestCase):
             'any MST instance'
         cls.warnDefVlanNotInInstance = cls.WarningStart + 'VLAN "Default"' + \
             ' with tag "1" is not part of any MST instance'
+        cls.noticeStackingModeNeeded1 = cls.NoticeStart + 'Creating' + \
+            ' configuration for switch / stack in stacking mode'
+        cls.noticeStackingModeNeeded2 = cls.NoticeStart + 'Stacking must' + \
+            ' be configured before applying this configuration'
+        cls.noticeStackingModeNeeded3 = cls.NoticeStart + 'See the' + \
+            ' ExtremeXOS Configuration Guide on how to configure stacking'
 
     def setUp(self):
         self.cw = XOS_write.XosConfigWriter(self.mockSwitch)
@@ -108,18 +120,41 @@ class XosConfigWriter_test(unittest.TestCase):
         reason = 'default'
         expectedConf = [self.confPortsDisplStr,
                         self.confPortsDescrStr,
-                        self.disableJumboStr]
+                        self.disableJumboStr,
+                        self.confAcl42Str]
         expectedErr = []
         expected = (expectedConf, expectedErr)
 
         self.mockPort.get_auto_neg_reason.return_value = reason
         self.mockPort.get_admin_state_reason.return_value = reason
+        self.mockPort.get_ipv4_acl_in.return_value = [42]
 
         result = self.cw.port()
 
         self.assertEqual(expected, result)
 
     def test_port_ok_auto_neg(self):
+        reason = 'transfer_conf'
+        expectedConf = [self.enablePortsStr,
+                        self.confPortsAutoStr + 'on',
+                        self.confPortsDisplStr,
+                        self.confPortsDescrStr,
+                        self.disableJumboStr,
+                        self.confAcl42Str]
+        expectedErr = []
+        expected = (expectedConf, expectedErr)
+
+        self.mockPort.get_auto_neg.return_value = True
+        self.mockPort.get_admin_state.return_value = True
+        self.mockPort.get_auto_neg_reason.return_value = reason
+        self.mockPort.get_jumbo.return_value = False
+        self.mockPort.get_ipv4_acl_in.return_value = [42]
+
+        result = self.cw.port()
+
+        self.assertEqual(expected, result)
+
+    def test_port_ok_auto_neg_no_acl(self):
         reason = 'transfer_conf'
         expectedConf = [self.enablePortsStr,
                         self.confPortsAutoStr + 'on',
@@ -133,6 +168,7 @@ class XosConfigWriter_test(unittest.TestCase):
         self.mockPort.get_admin_state.return_value = True
         self.mockPort.get_auto_neg_reason.return_value = reason
         self.mockPort.get_jumbo.return_value = False
+        self.mockPort.get_ipv4_acl_in.return_value = []
 
         result = self.cw.port()
 
@@ -143,7 +179,8 @@ class XosConfigWriter_test(unittest.TestCase):
         expectedConf = [self.enablePortsStr,
                         self.confPortsDisplStr,
                         self.confPortsDescrStr,
-                        self.disableJumboStr]
+                        self.disableJumboStr,
+                        self.confAcl42Str]
         expectedErr = ['ERROR: Auto-negotiation of port "' + self.portName +
                        '" disabled, but speed or duplex not defined']
         expected = (expectedConf, expectedErr)
@@ -155,6 +192,7 @@ class XosConfigWriter_test(unittest.TestCase):
         self.mockPort.get_description.return_value = ''
         self.mockPort.get_short_description.return_value = ''
         self.mockPort.get_jumbo.return_value = False
+        self.mockPort.get_ipv4_acl_in.return_value = [42]
 
         result = self.cw.port()
 
@@ -166,7 +204,8 @@ class XosConfigWriter_test(unittest.TestCase):
                         self.confPortsAutoStr + 'off speed 100 duplex half',
                         self.confPortsDisplStr,
                         self.confPortsDescrStr,
-                        self.enableJumboStr]
+                        self.enableJumboStr,
+                        self.confAcl42Str]
         expectedErr = []
         expected = (expectedConf, expectedErr)
 
@@ -181,6 +220,7 @@ class XosConfigWriter_test(unittest.TestCase):
         self.mockPort.get_short_description.return_value = ''
         self.mockPort.get_jumbo_reason.return_value = reason
         self.mockPort.get_jumbo.return_value = True
+        self.mockPort.get_ipv4_acl_in.return_value = [42]
 
         result = self.cw.port()
 
@@ -268,31 +308,44 @@ class XosConfigWriter_test(unittest.TestCase):
 
         self.assertIn(expectedErr, result)
 
+    # Note: That cannot be configured in EOS!
+    #       Test just documents current behavior.
     def test_normalize_vlan_egress_same_port_tagged_untagged(self):
         self.vlan._egress_ports = [('1', 'untagged'), ('1', 'tagged')]
         self.vlan._ingress_ports = [('1', 'untagged')]
 
         expectedErr = self.ErrorStart + \
+            'Port "1" in tagged egress list of VLAN "' + \
+            self.vlan.get_name() + '" but missing from tagged ingress: ' + \
+            'adding ingress'
+        expectedWarn1 = self.WarningStart + \
             'Port "1" both untagged and tagged in VLAN "' + \
             self.vlan.get_name() + '" (tag ' + str(self.vlan.get_tag()) + ')'
+        expectedWarn2 = self.WarningStart + \
+            'Removing untagged ingress of "' + self.vlan.get_name() + \
+            '" VLAN (tag ' + str(self.vlan.get_tag()) + ') from port "1"'
 
         result = self.cw._normalize_vlan(self.vlan)
 
         self.assertIn(expectedErr, result)
-        self.assertEqual(1, len(self.vlan._egress_ports))
+        self.assertIn(expectedWarn1, result)
+        self.assertIn(expectedWarn2, result)
+        # TODO: remove untagged egress as well
+        self.assertEqual(2, len(self.vlan._egress_ports))
+        self.assertEqual(self.vlan._egress_ports,
+                         [('1', 'untagged'), ('1', 'tagged')])
+        self.assertEqual(1, len(self.vlan._ingress_ports))
+        self.assertEqual(self.vlan._ingress_ports, [('1', 'tagged')])
 
+    # Note: That cannot be configured in EOS!
+    #       Test just documents current behavior.
     def test_normalize_vlan_egress_untagged_port_not_in_ingress_untagged(self):
         self.vlan._egress_ports = [('1', 'untagged')]
         self.vlan._ingress_ports = []
 
-        expectedErr = self.ErrorStart + \
-            'Port "1" in untagged egress list of VLAN "' + \
-            self.vlan._name + '" missing in untagged ingress list: adding ' + \
-            'to ingress'
-
         result = self.cw._normalize_vlan(self.vlan)
 
-        self.assertIn(expectedErr, result)
+        self.assertEqual([], result)
         self.assertEqual(1, len(self.vlan._egress_ports))
 
     def test_normalize_vlan_egress_tagged_port_not_in_ingress_tagged(self):
@@ -313,28 +366,42 @@ class XosConfigWriter_test(unittest.TestCase):
         self.vlan._ingress_ports = [('1', 'untagged'), ('1', 'tagged')]
         self.vlan._egress_ports = [('1', 'untagged')]
 
-        expectedErr = self.ErrorStart + \
+        expectedWarn = self.WarningStart + \
             'Port "1" both untagged and tagged in VLAN "' + \
             self.vlan.get_name() + '" (tag ' + str(self.vlan.get_tag()) + ')'
 
         result = self.cw._normalize_vlan(self.vlan)
 
-        self.assertIn(expectedErr, result)
+        self.assertIn(expectedWarn, result)
         self.assertEqual(1, len(self.vlan._ingress_ports))
 
+    # Note: That situation can be created in EOS by using 'set port discard',
+    #       but that is not yet supported by E2X and highly uncommon.
+    #       XOS does not support this AFAIK, so a modified translation seems OK
     def test_normalize_vlan_ingress_untagged_port_not_in_egress_untagged(self):
         self.vlan._ingress_ports = [('1', 'untagged')]
         self.vlan._egress_ports = [('1', 'tagged')]
 
         expectedErr = self.ErrorStart + \
-            'Port "1" in untagged ingress list of VLAN "' + \
-            self.vlan._name + '" missing in untagged egress list: ' + \
-            'adding to egress'
+            'Port "1" in tagged egress list of VLAN "' + \
+            self.vlan._name + '" but missing from tagged ingress: adding ' + \
+            'ingress'
+        expectedWarn1 = self.WarningStart + \
+            'Port "1" both untagged and tagged in VLAN "' + \
+            self.vlan.get_name() + '" (tag ' + str(self.vlan.get_tag()) + ')'
+        expectedWarn2 = self.WarningStart + \
+            'Removing untagged ingress of "' + self.vlan.get_name() + \
+            '" VLAN (tag ' + str(self.vlan.get_tag()) + ') from port "1"'
 
         result = self.cw._normalize_vlan(self.vlan)
+        self.assertIn(expectedWarn1, result)
+        self.assertIn(expectedWarn2, result)
 
         self.assertIn(expectedErr, result)
         self.assertEqual(1, len(self.vlan._egress_ports))
+        self.assertEqual(self.vlan._ingress_ports, [('1', 'tagged')])
+        self.assertEqual(1, len(self.vlan._ingress_ports))
+        self.assertEqual(self.vlan._egress_ports, [('1', 'tagged')])
 
     def test_normalize_ok(self):
         self.vlan._egress_ports = [('1', 'untagged'), ('2', 'tagged')]
@@ -1371,6 +1438,115 @@ class XosConfigWriter_test(unittest.TestCase):
         result = self.cw.stp()
 
         self.assertEqual(expected, result)
+
+    def test_acl_aclHasNeitherNameNorNumber(self):
+        self.cw._switch = Switch.Switch()
+        self.cw._switch.add_complete_acl(ACL())
+        expErrorLst = []
+        expConfList = [['acl_nr1']]
+        expected = (expConfList, expErrorLst)
+
+        result = self.cw.acl()
+
+        self.assertEqual(expected, result)
+
+    def test_acl_aclHasName(self):
+        self.cw._switch = Switch.Switch()
+        self.cw._switch.add_complete_acl(ACL(name='foo'))
+        expErrorLst = []
+        expConfList = [['acl_foo']]
+        expected = (expConfList, expErrorLst)
+
+        result = self.cw.acl()
+
+        self.assertEqual(expected, result)
+
+    def test_acl_aclHasNumber(self):
+        self.cw._switch = Switch.Switch()
+        self.cw._switch.add_complete_acl(ACL(number='100'))
+        expErrorLst = []
+        expConfList = [['acl_100']]
+        expected = (expConfList, expErrorLst)
+
+        result = self.cw.acl()
+
+        self.assertEqual(expected, result)
+
+    def test_acl_aceHasNoNumber(self):
+        self.cw._switch = XOS.XosSwitch()
+        acl = ACL(number='100')
+        ace = ACE()
+        acl.add_ace(ace)
+        self.cw._switch.add_complete_acl(acl)
+        expErrorLst = []
+
+        confList, errList = self.cw.acl()
+
+        self.assertEqual(expErrorLst, errList)
+        self.assertIn('entry 10', confList[0][1])
+
+    def test_acl_aceHasNumber(self):
+        self.cw._switch = XOS.XosSwitch()
+        acl = ACL(number='100')
+        ace = ACE(number=200)
+        acl.add_ace(ace)
+        self.cw._switch.add_complete_acl(acl)
+        expErrorLst = []
+
+        confList, errList = self.cw.acl()
+
+        self.assertEqual(expErrorLst, errList)
+        self.assertIn('entry 200', confList[0][1])
+
+    def test_acl_srcOpNotEqualEq(self):
+        self.cw._switch = XOS.XosSwitch()
+        acl = ACL(number='100')
+        ace = ACE(number=200, source_op='ne', source_port=53)
+        acl.add_ace(ace)
+        self.cw._switch.add_complete_acl(acl)
+        expErrList = ['ERROR: ACL source operator "ne" not supported']
+
+        confList, errList = self.cw.acl()
+
+        self.assertEqual(expErrList, errList)
+        self.assertIn('entry 200', confList[0][1])
+
+    def test_acl_destOpNotEqualEq(self):
+        self.cw._switch = XOS.XosSwitch()
+        acl = ACL(number='100')
+        ace = ACE(number=200, dest_op='ne', dest_port=53)
+        acl.add_ace(ace)
+        self.cw._switch.add_complete_acl(acl)
+        expErrList = ['ERROR: ACL destination operator "ne" not supported']
+
+        confList, errList = self.cw.acl()
+
+        self.assertEqual(expErrList, errList)
+        self.assertIn('entry 200', confList[0][1])
+
+    def test_stack_notice(self):
+        reason = 'default'
+        self.cw._switch = self.mockTargetSwitch
+        self.mockTargetSwitch.get_ports.return_value = [self.mockTargetPort1]
+        self.mockTargetPort1.get_admin_state_reason.return_value = reason
+        self.mockTargetPort1.get_auto_neg_reason.return_value = reason
+        self.mockTargetPort1.get_short_description_reason.return_value = \
+            reason
+        self.mockTargetPort1.get_description_reason.return_value = reason
+        self.mockTargetPort1.get_description_reason.return_value = reason
+        self.mockTargetPort1.get_jumbo_reason.return_value = reason
+        self.mockTargetPort1.get_ipv4_acl_in_reason.return_value = reason
+        self.mockTargetSwitch.is_stack.return_value = True
+        expectedConf = []
+        expectedErr = [self.noticeStackingModeNeeded1,
+                       self.noticeStackingModeNeeded2,
+                       self.noticeStackingModeNeeded3]
+        expected = (expectedConf, expectedErr)
+
+        result = self.cw.port()
+
+        self.assertEqual(expected, result)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -3,11 +3,11 @@
 ## Overview
 
 The E2X Translator (E2X) is a command line tool to translate the
-configuration of an Enterasys Operating System (EOS) switch into
-an equivalent ExtremeXOS Network Operating System (EXOS) switch
-configuration. Main intention is to help migrating from Enterasys Networks
-(now Extreme Networks) SecureStack or similar to Extreme Networks Summit
-Series switches.
+configuration of an Enterasys Operating System (EOS, also known as
+ExtremeEOS) switch into an equivalent ExtremeXOS Network Operating System
+(EXOS) switch configuration. Main intention is to help migrating from
+Enterasys Networks (now Extreme Networks) SecureStack or similar to
+Extreme Networks Summit Series switches.
 
 Translation is based on a *source* and *target* switch. Selection
 of specific switch models determines the input and output configuration
@@ -31,29 +31,139 @@ One important example is the default spanning tree configuration of
 EOS, that can only be approximated by a compatible EXOS spanning tree
 configuration.
 
+E2X works best with configuration sections copied directly from the
+switch. Using the complete switch configuration as input will often
+result in many unknown commands, but using (a combination of) supported
+configuration sections should result in a useful translation without
+(many) warnings or even errors.
+
+You can print a configuration section using the `show config
+SECTION` command, e.g. `show config vlan` or `show config
+router`.
+
+Because E2X performs consistency checks during translation, it might help
+finding problems in EOS configuration templates by printing warnings or
+even error messages.
+
 ### Input Configuration Formats
 
-E2X supports EOS text configuration files as input.
+E2X supports EOS text configuration files as input. All keywords must be
+written completely, unique abbreviations as known from the switch
+command line are *not* supported.
+
+Partial configurations may result in warnings, e.g. a router mode command
+such as `access-list 1 permit 192.0.2.0 0.0.0.255` without first entering
+the router configuration mode. To translate an ACL without warnings
+enclose it in entering and leaving router configuration mode:
+
+    router
+    enable
+    configure
+    access-list 1 permit 192.0.2.0 0.0.0.255
+    exit
+    exit
+    exit
+
+Most `set` commands can be translated in isolation, but some, like setting
+a VLAN name, need preceding commands.
+
+Trying to translate `set vlan name 3 Three` results in the error `ERROR:
+VLAN 3 not found (set vlan name)` and no translated configuration. Before
+setting the VLAN name, the VLAN needs to be created:
+
+    set vlan create 3
+    set vlan name 3 Three
+
+will create the translation:
+
+    create vlan Three tag 3
 
 ### Output Configuration Formats
 
 E2X supports ExtremeXOS text configuration files, also known as EXOS script
-files (extension .xsf), as output.
+files (extension .xsf), and policy files (extension .pol) for access lists,
+as output.
 
 ### Source Switch Models
 
 * C5G124-24
+* C5G124-24P2
+* C5G124-48
+* C5G124-48P2
+* C5K125-24
+* C5K125-24P2
 * C5K125-48
-* C5K125-48P2 (this is the default model used)
+* C5K125-48P2
+* C5K175-24
+
+The default source switch is a C5K125-48P2.
+
+The source switch is specified by using the `--source` option with the
+switch name, e.g. `--source C5G124-24`. If no `--source` option is given,
+the default model is used.
 
 ### Target Switch Models
 
 * SummitX460-24t
+* SummitX460-24p
+* SummitX460-24x
+* SummitX460-48t
 * SummitX460-48p
-* SummitX460-48p with an XGM3S-2SF module (this is the default model used)
-* SummitX460-48p with an XGM3S-2XF module
-* SummitX460-48p with an XGM3S-4SF module
-* SummitX460-48p with an XGM3S-2SF and an XGM3S-4SF module
+* SummitX460-48x
+* XGM3S-2SF module
+* XGM3S-2XF module
+* XGM3S-4SF module
+
+The default target switch is a SummitX460-48p with XGM3S-2SF module.
+
+The target switch is specified by using the `--target` option with the
+switch name, e.g. `--target SummitX460-48p+2sf+4sf`. If no `--target`
+option is given, the default model is used.
+
+### Stacks
+
+Both SecureStack and SummitStack switches can be *stacked*. A stack
+comprises several switches, but it is managed as one virtual switch.
+
+A stack can be specified by using a comma separated list of switch model
+names to the `--source` and `--target` options.
+
+    --source C5K125-48P2,C5K125-48P2 \
+    --target SummitX460-48p+2sf,SummitX460-48p+2sf
+
+The switch model name list must not contain any whitespace.
+
+If the target switch is used standalone, but with enabled stacking,
+you can append a comma to the target switch model name to create a
+translation suitable for a switch in stacking mode.
+
+### Warnings
+
+Warnings are generated for inconsistencies in the input configuration or
+features that are problematic to translate. The input line that resulted
+in the warning is translated, but the translation might not be exact.
+
+You should review all warnings carefully before using the translated
+configuration. Often the warning can be avoided by slight changes of the
+input configuration.
+
+You can use the `--err-warnings` option together with `--abort-on-error`
+option to avoid creating translations if the translation creates warnings.
+
+### Errors
+
+Errors result from input configurations that cannot be translated correctly,
+because either some information is missing or the feature is not supported
+on the target platform. Any input configuration line resulting in an error
+is *not* translated.
+
+You should review all error messages carefully. You should *never* use a
+configuration translation with errors. Instead, you should modify the input
+configuration to translate without any errors and verify that this matches
+the configuration requirements.
+
+You can use the `--abort-on-error` option to avoid creating translations
+if errors are encountered.
 
 ## Usage
 
@@ -90,13 +200,21 @@ by *.xsf* for the output file. Otherwise, the extension *.xsf* is added
 to the complete input file name (including an extension) to create the
 output file name.
 
+If the EOS configuration contains access control lists (ACLs), one policy
+file is used for each ACL. The policy files are saved in a directory
+with the same base name as the output configuration. The policy file
+names without *.pol* extension (policy file base names) are used to
+reference the access lists in the translated configuration. Copy the
+policy files to the root directory of the EXOS switch to use them.
+
 To convert several configuration files in one go, just provide all file names
 as program arguments:
 
     e2x.py config1.cfg config2.cfg config3.cfg
 
 This will create the output files *config1.xsf*, *config2.xsf*, and
-*config3.xsf*.
+*config3.xsf*. For each configuration containing ACLs, a directory
+containing one policy file per ACL is created as well.
 
 ### Options Overview
 
@@ -149,19 +267,68 @@ configuration commands.
       to check e.g. the validity of port configuration commands.
       Currently the following source switch model keywords can be used:
         * C5G124-24
+        * C5G124-24P2
+        * C5G124-48
+        * C5G124-48P2
+        * C5K125-24
+        * C5K125-24P2
         * C5K125-48
         * C5K125-48P2
+        * C5K175-24
+      A stack of switches is specified by combining the switch model keywords
+      in a comma separated list. The order of switch model keywords defines
+      the position in the stack. The list must not contain any spaces (or
+      any other whitespace):
+        * C5K125-48P2,C5G124-24,C5K125-48
 * --target *target_switch_model*
     * Specify the target switch model to use. This should correspond to the
       switch model to migrate to. The switch model is used to create a mapping
       from the source switch to equivalent ports of the target switch.
       Currently the following target switch model keywords can be used:
+        * SummitX460-24p
+        * SummitX460-24p+2sf
+        * SummitX460-24p+2sf+4sf
+        * SummitX460-24p+2xf
+        * SummitX460-24p+2xf+4sf
+        * SummitX460-24p+4sf
         * SummitX460-24t
+        * SummitX460-24t+2sf
+        * SummitX460-24t+2sf+4sf
+        * SummitX460-24t+2xf
+        * SummitX460-24t+2xf+4sf
+        * SummitX460-24t+4sf
+        * SummitX460-24x
+        * SummitX460-24x+2sf
+        * SummitX460-24x+2sf+4sf
+        * SummitX460-24x+2xf
+        * SummitX460-24x+2xf+4sf
+        * SummitX460-24x+4sf
         * SummitX460-48p
         * SummitX460-48p+2sf
-        * SummitX460-48p+2xf
-        * SummitX460-48p+4sf
         * SummitX460-48p+2sf+4sf
+        * SummitX460-48p+2xf
+        * SummitX460-48p+2xf+4sf
+        * SummitX460-48p+4sf
+        * SummitX460-48t
+        * SummitX460-48t+2sf
+        * SummitX460-48t+2sf+4sf
+        * SummitX460-48t+2xf
+        * SummitX460-48t+2xf+4sf
+        * SummitX460-48t+4sf
+        * SummitX460-48x
+        * SummitX460-48x+2sf
+        * SummitX460-48x+2sf+4sf
+        * SummitX460-48x+2xf
+        * SummitX460-48x+2xf+4sf
+        * SummitX460-48x+4sf
+      A stack of switches is specified by combining the switch model keywords
+      in a comma separated list. The order of switch model keywords defines
+      the position in the stack. The list must not contain any spaces (or
+      any other whitespace):
+        * SummitX460-48p+2sf,SummitX460-24t,SummitX460-48p+2sf
+      To specify that the standalone target switch is configured for stacking
+      (`enable stacking`), append a comma to the switch model name:
+        * SummitX460-24t,
 * -o *file*, --outfile *file*
     * Specify a non-default file name for writing the translated configuration.
       If this option is used and several input files are given, *all* translated
@@ -222,7 +389,9 @@ E2X works like a filter program as know from Unix operation systems
 (see https://en.wikipedia.org/wiki/Filter_(software) for info).
 Thus all program input can be provided on *standard input*, the translated
 configuration is written to *standard output*, and additional program
-output (e.g. error messages) is written to *standard error*.
+output (e.g. error messages) is written to *standard error*. The contents
+of policy files is preceeded by a comment line with the name for the policy
+file which is used in the translated configuration.
 
 ## Examples
 

@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -36,6 +36,7 @@ import Switch
 import VLAN
 import LAG
 import STP
+from ACL import ACL
 
 
 class Switch_test(unittest.TestCase):
@@ -45,12 +46,16 @@ class Switch_test(unittest.TestCase):
         cls.portsDict = {"label": {"start": 1, "end": 2},
                          "name": {"start": 1, "end": 2},
                          "data": {}}
-        cls.hwDesc = ('{"ports":{"label":{"start":1,"end":2},'
-                      ' "name":{"start": 1, "end": 2},"data":{}}}')
+        cls.hwDesc = (['{"ports":{"label":{"start":1,"end":2},'
+                       ' "name":{"start": 1, "end": 2},"data":{}}}'])
 
         cls.mockVlan1 = MagicMock(spec=VLAN.VLAN)()
         cls.mockVlan1.get_name.return_value = 'foo'
         cls.mockVlan1.get_tag.return_value = 1
+
+        cls.mockVlan2 = MagicMock(spec=VLAN.VLAN)()
+        cls.mockVlan2.get_name.return_value = 'baz'
+        cls.mockVlan2.get_tag.return_value = 2
 
         cls.mockLag = MagicMock(spec=LAG.LAG)
         cls.mockLag.get_name.return_value = 'bar'
@@ -69,12 +74,16 @@ class Switch_test(unittest.TestCase):
         self.sw = Switch.Switch()
 
     def test_setup_hw(self):
-        self.sw.add_ports = MagicMock()
+        self.sw._add_ports = MagicMock()
         self.sw._hw_desc.append(self.hwDesc)
 
-        self.sw.setup_hw()
+        self.sw._setup_hw()
 
-        self.sw.add_ports.assert_called_once_with(self.portsDict)
+        self.sw._add_ports.assert_called_once_with(self.portsDict, 1)
+
+    def test_is_stack_default_no(self):
+
+        self.assertFalse(self.sw.is_stack())
 
     #
     # Ports
@@ -85,7 +94,7 @@ class Switch_test(unittest.TestCase):
         with patch('Port.Port') as port:
             port.return_value = None
 
-            self.sw.add_ports(Switch_test.portsDict)
+            self.sw._add_ports(Switch_test.portsDict, 1)
             expected = [call('1', 'name', {}), call('2', 'name', {})]
             self.assertEqual(expected, port.call_args_list)
 
@@ -104,7 +113,7 @@ class Switch_test(unittest.TestCase):
     def test_build_port_name(self):
         expected = Switch.Switch.DEFAULT_PORT_NAME
 
-        result = self.sw._build_port_name(-1, {})
+        result = self.sw._build_port_name(-1, {}, 1)
 
         self.assertEqual(expected, result)
 
@@ -193,13 +202,6 @@ class Switch_test(unittest.TestCase):
 
         self.assertIsNone(self.sw.get_os())
 
-    def test_set_slot(self):
-        slotNr = 2
-
-        self.sw.set_slot(slotNr)
-
-        self.assertEqual(slotNr, self.sw._slot)
-
     def test_str(self):
         p = MagicMock(spec=Port.Port)
         p.__str__.return_value = ''
@@ -234,6 +236,7 @@ class Switch_test(unittest.TestCase):
         expected += ' Max. LAGs: (None, None)\n'
         expected += ' Single Port LAG: (None, None)\n'
         expected += ' Spanning Tree:\n'
+        expected += ' ACLs:\n'
 
         result = str(self.sw)
 
@@ -495,9 +498,10 @@ class Switch_test(unittest.TestCase):
     def test_expand_macros(self):
         config = 'foo'
 
-        result = self.sw.expand_macros(config)
+        result, errors = self.sw.expand_macros(config)
 
         self.assertEqual(config, result)
+        self.assertEqual(errors, [])
 
     def test_get_cmd(self):
 
@@ -569,6 +573,40 @@ class Switch_test(unittest.TestCase):
         self.sw.add_vlan(self.mockVlan1)
 
         self.assertEqual(expectedLen, len(self.sw._vlans))
+
+    def test_is_port_in_non_default_vlan_no_vlans(self):
+        port1Name = 'ge.1.1'
+        self.assertFalse(self.sw.is_port_in_non_default_vlan(port1Name))
+
+    def test_is_port_in_non_default_vlan_default_vlan_only(self):
+        port1Name = 'ge.1.1'
+        self.mockVlan1.contains_port.return_value = True
+        self.sw.add_vlan(self.mockVlan1)
+        self.assertFalse(self.sw.is_port_in_non_default_vlan(port1Name))
+
+    def test_is_port_in_non_default_vlan_port_in_vlan_1(self):
+        port1Name = 'ge.1.1'
+        self.mockVlan1.contains_port.return_value = True
+        self.mockVlan2.contains_port.return_value = False
+        self.sw.add_vlan(self.mockVlan1)
+        self.sw.add_vlan(self.mockVlan2)
+        self.assertFalse(self.sw.is_port_in_non_default_vlan(port1Name))
+
+    def test_is_port_in_non_default_vlan_port_in_vlan_2(self):
+        port1Name = 'ge.1.1'
+        self.mockVlan1.contains_port.return_value = False
+        self.mockVlan2.contains_port.return_value = True
+        self.sw.add_vlan(self.mockVlan1)
+        self.sw.add_vlan(self.mockVlan2)
+        self.assertTrue(self.sw.is_port_in_non_default_vlan(port1Name))
+
+    def test_is_port_in_non_default_vlan_port_in_vlans_1_and_2(self):
+        port1Name = 'ge.1.1'
+        self.mockVlan1.contains_port.return_value = True
+        self.mockVlan2.contains_port.return_value = True
+        self.sw.add_vlan(self.mockVlan1)
+        self.sw.add_vlan(self.mockVlan2)
+        self.assertTrue(self.sw.is_port_in_non_default_vlan(port1Name))
 
     #
     #   Stps
@@ -652,6 +690,50 @@ class Switch_test(unittest.TestCase):
 
         self.assertEqual(expectedLen, len(self.sw.get_stps()))
         self.assertEqual(expected, result)
+
+    def test_add_acl_parametersValid(self):
+        nr_of_acls = len(self.sw._acls)
+
+        result = self.sw.add_acl(number=1)
+
+        self.assertEqual(nr_of_acls + 1, len(self.sw._acls))
+        self.assertEqual('', result)
+
+    def test_add_acl_parametersMissing(self):
+        nr_of_acls = len(self.sw._acls)
+
+        result = self.sw.add_acl()
+
+        self.assertEqual(nr_of_acls, len(self.sw._acls))
+        self.assertIn('ERROR', result)
+
+    def test_add_acl_bothParametersSet(self):
+        nr_of_acls = len(self.sw._acls)
+
+        result = self.sw.add_acl(1, 'test')
+
+        self.assertEqual(nr_of_acls, len(self.sw._acls))
+        self.assertIn('ERROR', result)
+
+    def test_add_acl_aclWithSameNameAlreadyExists(self):
+        acl = ACL(name='test')
+        self.sw.add_complete_acl(acl)
+        nr_of_acls = len(self.sw._acls)
+
+        result = self.sw.add_acl(name='test')
+
+        self.assertEqual(nr_of_acls, len(self.sw._acls))
+        self.assertIn('ERROR', result)
+
+    def test_add_acl_aclWithSameNumberAlreadyExists(self):
+        acl = ACL(number=1)
+        self.sw.add_complete_acl(acl)
+        nr_of_acls = len(self.sw._acls)
+
+        result = self.sw.add_acl(number=1)
+
+        self.assertEqual(nr_of_acls, len(self.sw._acls))
+        self.assertIn('ERROR', result)
 
 if __name__ == '__main__':
     unittest.main()

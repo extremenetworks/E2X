@@ -22,7 +22,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -41,27 +41,52 @@ import sys
 import CM
 
 progname = 'e2x'
-progver = '0.4.3'
-progdesc = """Translate EOS switch configuration commands to ExtremeXOS.
-If no FILEs are specified, input is read from STDIN and written to STDOUT.
-Otherwise the translated configuration read from a file is written to a
-file with the same name with the extension '.xsf' appended.
-Default settings of source and target switches are considered unless
-the option to ignore switch default settings is given. Valid input lines
-that are not yet supported will be ignored.
+progver = '0.6.4'
+progdesc = """\
+Translate ExtremeEOS switch configuration commands to ExtremeXOS. If no
+FILEs are specified, input is read from STDIN and written to STDOUT, and
+ACLs are preceded by a comment giving the policy file name used in the
+translation. If FILEs are specified, the translated configuration read
+from a file is written to a file with the same name with the extension
+'.xsf' appended. The associated ACLs are written to individual policy
+files saved in directory named after the input file (with extension
+'.acls'). Default settings of source and target switches are considered
+unless the option to ignore switch default settings is given. Valid
+input lines that are not yet supported will be ignored.
 """
 
 
 def main():
     return_value = 0
     # get switch models available for translation from core module
-    # to populate option parser
+    # to populate option parser help output
     c = CM.CoreModule()
-    source_switches = c.get_source_switches()
-    target_switches = c.get_target_switches()
+    source_switches = sorted(c.get_source_switches())
+    target_switches = sorted(c.get_target_switches())
+    source_switch_models_help = 'supported SOURCE switch models:'
+    for sw in source_switches:
+        source_switch_models_help += '\n    ' + sw
+    switch_models_help = source_switch_models_help
+    target_switch_models_help = 'supported TARGET switch models:'
+    for sw in target_switches:
+        target_switch_models_help += '\n    ' + sw
+    switch_models_help += '\n\n' + target_switch_models_help
+    stack_switch_models_help = """\
+Use a comma separated list of switch models to specify a stack as
+source or target switch:
+
+    --source C5K125-48,C5G124-24,C5K125-48P2
+    --target SummitX460-48p+2sf,SummitX460-24t,SummitX460-48p+2sf
+
+There must not be any whitespace in the list of switch models!
+"""
+    switch_models_help += '\n\n' + stack_switch_models_help
 
     # option and argument parsing
-    parser = argparse.ArgumentParser(prog=progname, description=progdesc)
+    parser = argparse.ArgumentParser(
+        prog=progname, description=progdesc,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=switch_models_help)
     parser.add_argument('-V', '--version', action='version',
                         version=progname + ' ' + progver)
     parser.add_argument('-q', '--quiet', action='store_true',
@@ -70,11 +95,9 @@ def main():
                         help='print informational messages')
     parser.add_argument('-D', '--debug', action='store_true',
                         help='print debug information')
-    parser.add_argument('--source', choices=source_switches,
-                        default='C5K125-48P2',
+    parser.add_argument('--source', default='C5K125-48P2',
                         help='source switch model (default %(default)s)')
-    parser.add_argument('--target', choices=target_switches,
-                        default='SummitX460-48p+2sf',
+    parser.add_argument('--target', default='SummitX460-48p+2sf',
                         help='target switch model (default %(default)s)')
     parser.add_argument('-o', '--outfile',
                         help="specify non-default output file, '-' for STDOUT")
@@ -128,10 +151,33 @@ def main():
     if args.disable_unused_ports:
         c.disable_unused_ports()
 
+    # check source switch description
+    for sw in args.source.split(','):
+        if not sw:
+            continue
+        if sw not in source_switches:
+            print(progname + ':', 'error parsing argument to --source option',
+                  file=sys.stderr)
+            print('\n' + source_switch_models_help.rstrip())
+            print('\n' + stack_switch_models_help.rstrip())
+            return 1
+    # check target switch description
+    for sw in args.target.split(','):
+        if not sw:
+            continue
+        if sw not in target_switches:
+            print(progname + ':', 'error parsing argument to --target option',
+                  file=sys.stderr)
+            print('\n' + target_switch_models_help.rstrip())
+            print('\n' + stack_switch_models_help.rstrip())
+            return 1
+
     # initialize source and target switches
-    ret = c.set_source_switch(args.source)
+    ret, trace = c.set_source_switch(args.source)
     if not ret:
         print('ERROR: Could not set source switch', file=sys.stderr)
+        if trace:
+            print(trace, file=sys.stderr)
         return 1
     if args.sfp_list:
         ret = c.source.set_combo_using_sfp(args.sfp_list.split(','))
@@ -142,9 +188,11 @@ def main():
     if args.debug:
         print('DEBUG: Source switch:', file=sys.stderr)
         print(str(c.source), end='', file=sys.stderr)
-    ret = c.set_target_switch(args.target)
+    ret, trace = c.set_target_switch(args.target)
     if not ret:
         print('ERROR: Could not set target switch', file=sys.stderr)
+        if trace:
+            print(trace, file=sys.stderr)
         return 1
     if args.debug:
         print('DEBUG: Target switch:', file=sys.stderr)
@@ -203,7 +251,7 @@ def main():
 
         error_occurred = False
         for l in err:
-            if (l.startswith('ERROR') or
+            if (isinstance(l, str) and l.startswith('ERROR') or
                     (args.err_warnings and l.startswith('WARN')) or
                     (args.err_unknown_lines and
                      'Ignoring unknown command' in l)):
@@ -226,7 +274,34 @@ def main():
                 msg += ' "' + outname + '"'
                 err.insert(0, msg)
             for l in t_conf:
-                print(l.rstrip(), file=out)
+                if isinstance(l, str):
+                    print(l.rstrip(), file=out)
+                elif isinstance(l, list):
+                    # create ACL file, XOS only!
+                    acl_dir = ''
+                    if outname != '-':
+                        acl_dir = outname[:-3] + 'acls'
+                        if not os.path.exists(acl_dir):
+                            os.mkdir(acl_dir)
+                    acl_name = l.pop(0) + '.pol'
+                    acl_entries = ''
+                    for acl_entry in l:
+                        acl_entries += acl_entry
+                    if out == sys.stdout:
+                        acl_str = acl_name + '\n' + acl_entries.rstrip()
+                        print(c.target.get_cmd().get_comment(), acl_str,
+                              file=out)
+                    else:
+                        acl_out = open(acl_dir + '/' + acl_name, 'w')
+                        msg = ('NOTICE: Writing translated ACL file "' +
+                               acl_dir + '/' + acl_name + '"')
+                        err.append(msg)
+                        print(acl_entries.rstrip(), file=acl_out)
+                        acl_out.close()
+                else:
+                    print('ERROR: Unknown configuration line format:', l,
+                          file=sys.stderr)
+                    return_value = 1
             if args.messages_as_comments:
                 if err:
                     print('', file=out)
@@ -243,7 +318,7 @@ def main():
         if args.debug:
             print('DEBUG: Errors:', file=sys.stderr)
         for l in err:
-            if (l and
+            if (l and isinstance(l, str) and
                     (not l.startswith('DEBUG') or args.debug) and
                     (not l.startswith('INFO') or args.verbose) and
                     (not args.quiet or l.startswith('ERROR') or

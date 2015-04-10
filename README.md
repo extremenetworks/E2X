@@ -35,21 +35,23 @@ E2X prints a short help message if the option `--help` is used:
 
 ```
 $ e2x.py --help
-usage: e2x [-h] [-V] [-q] [-v] [-D]
-           [--source {C5K125-48P2,C5K125-48,C5G124-24}]
-           [--target {SummitX460-48p+4sf,SummitX460-48p+2sf,SummitX460-24t,SummitX460-48p+2xf,SummitX460-48p+2sf+4sf,SummitX460-48p}]
+usage: e2x [-h] [-V] [-q] [-v] [-D] [--source SOURCE] [--target TARGET]
            [-o OUTFILE] [-d OUTDIR] [--sfp-list SFP_LIST] [--ignore-defaults]
            [--keep-unknown-lines] [--comment-unknown-lines]
            [--err-unknown-lines] [--err-warnings] [--messages-as-comments]
            [--abort-on-error] [--disable-unused-ports]
            [FILE [FILE ...]]
 
-Translate EOS switch configuration commands to ExtremeXOS. If no FILEs are
-specified, input is read from STDIN and written to STDOUT. Otherwise the
-translated configuration read from a file is written to a file with the same
-name with the extension '.xsf' appended. Default settings of source and target
-switches are considered unless the option to ignore switch default settings is
-given. Valid input lines that are not yet supported will be ignored.
+Translate ExtremeEOS switch configuration commands to ExtremeXOS. If no
+FILEs are specified, input is read from STDIN and written to STDOUT, and
+ACLs are preceded by a comment giving the policy file name used in the
+translation. If FILEs are specified, the translated configuration read
+from a file is written to a file with the same name with the extension
+'.xsf' appended. The associated ACLs are written to individual policy
+files saved in directory named after the input file (with extension
+'.acls'). Default settings of source and target switches are considered
+unless the option to ignore switch default settings is given. Valid
+input lines that are not yet supported will be ignored.
 
 positional arguments:
   FILE                  EOS file to translate (default STDIN)
@@ -60,10 +62,8 @@ optional arguments:
   -q, --quiet           suppress non-error messages
   -v, --verbose         print informational messages
   -D, --debug           print debug information
-  --source {C5K125-48P2,C5K125-48,C5G124-24}
-                        source switch model (default C5K125-48P2)
-  --target {SummitX460-48p+4sf,SummitX460-48p+2sf,SummitX460-24t,SummitX460-48p+2xf,SummitX460-48p+2sf+4sf,SummitX460-48p}
-                        target switch model (default SummitX460-48p+2sf)
+  --source SOURCE       source switch model (default C5K125-48P2)
+  --target TARGET       target switch model (default SummitX460-48p+2sf)
   -o OUTFILE, --outfile OUTFILE
                         specify non-default output file, '-' for STDOUT
   -d OUTDIR, --outdir OUTDIR
@@ -83,6 +83,63 @@ optional arguments:
                         error occurs
   --disable-unused-ports
                         disable additional, unused ports of target switch
+
+supported SOURCE switch models:
+    C5G124-24
+    C5G124-24P2
+    C5G124-48
+    C5G124-48P2
+    C5K125-24
+    C5K125-24P2
+    C5K125-48
+    C5K125-48P2
+    C5K175-24
+
+supported TARGET switch models:
+    SummitX460-24p
+    SummitX460-24p+2sf
+    SummitX460-24p+2sf+4sf
+    SummitX460-24p+2xf
+    SummitX460-24p+2xf+4sf
+    SummitX460-24p+4sf
+    SummitX460-24t
+    SummitX460-24t+2sf
+    SummitX460-24t+2sf+4sf
+    SummitX460-24t+2xf
+    SummitX460-24t+2xf+4sf
+    SummitX460-24t+4sf
+    SummitX460-24x
+    SummitX460-24x+2sf
+    SummitX460-24x+2sf+4sf
+    SummitX460-24x+2xf
+    SummitX460-24x+2xf+4sf
+    SummitX460-24x+4sf
+    SummitX460-48p
+    SummitX460-48p+2sf
+    SummitX460-48p+2sf+4sf
+    SummitX460-48p+2xf
+    SummitX460-48p+2xf+4sf
+    SummitX460-48p+4sf
+    SummitX460-48t
+    SummitX460-48t+2sf
+    SummitX460-48t+2sf+4sf
+    SummitX460-48t+2xf
+    SummitX460-48t+2xf+4sf
+    SummitX460-48t+4sf
+    SummitX460-48x
+    SummitX460-48x+2sf
+    SummitX460-48x+2sf+4sf
+    SummitX460-48x+2xf
+    SummitX460-48x+2xf+4sf
+    SummitX460-48x+4sf
+
+Use a comma separated list of switch models to specify a stack as
+source or target switch:
+
+    --source C5K125-48,C5G124-24,C5K125-48P2
+    --target SummitX460-48p+2sf,SummitX460-24t,SummitX460-48p+2sf
+
+There must not be any whitespace in the list of switch models!
 ```
 
 ## License

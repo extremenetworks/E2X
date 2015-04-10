@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -36,6 +36,7 @@ The class CoreModule provides the translation interface.
 import sys
 import traceback
 
+import ACL
 import LAG
 import STP
 import VLAN
@@ -125,23 +126,48 @@ class CoreModule:
     def get_target_switches(self):
         return self._target_switches
 
+    def _check_stack_desc(self, desc, stack_use):
+        stack_os = None
+        for stack_member in desc.split(','):
+            if not stack_member:
+                continue
+            sw = stack_member.strip()
+            try:
+                sw_os = _devices[sw]['os']
+                sw_use = _devices[sw]['use_as']
+            except:
+                error = 'ERROR: Unknown switch name "' + sw + '"'
+                if self._debug:
+                    error += '\n' + traceback.format_exc()
+                return False, '', error
+            if stack_os is None:
+                stack_os = sw_os
+            elif stack_os != sw_os:
+                error = 'ERROR: All switches in a stack must use same OS'
+                return False, '', error
+            if stack_use != sw_use and sw_use != 'both':
+                error = ('ERROR: "' + sw + '" not supported as "' +
+                         stack_use + '" switch')
+                return False, '', error
+        return True, stack_os, ''
+
+    def _set_switch(self, model, use_as):
+        model_ok, os, errors = self._check_stack_desc(model, use_as)
+        if not model_ok:
+            return None, errors
+        if os == 'EOS':
+            return EOS.EosSwitchHardware(model), ''
+        elif os == 'XOS':
+            return XOS.XosSwitchHardware(model), ''
+        return None, 'ERROR: Cannot determine ' + use_as + ' stack OS'
+
     def set_source_switch(self, model):
-        try:
-            self.source = _devices[model]['class']()
-        except:
-            if self._debug:
-                print(traceback.format_exc(), file=sys.stderr)
-            return False
-        return True
+        self.source, errors = self._set_switch(model, 'source')
+        return bool(self.source), errors
 
     def set_target_switch(self, model):
-        try:
-            self.target = _devices[model]['class']()
-        except:
-            if self._debug:
-                print(traceback.format_exc(), file=sys.stderr)
-            return False
-        return True
+        self.target, errors = self._set_switch(model, 'target')
+        return bool(self.target), errors
 
     def _check_mapping_consistency(self, name, s2t, t2s):
         ret, err = True, []
@@ -185,9 +211,12 @@ class CoreModule:
             if candidate:
                 self._port_mapping_s2t[sp.get_name()] = candidate.get_name()
                 self._port_mapping_t2s[candidate.get_name()] = sp.get_name()
+                msg = ('Mapping port "' + sp.get_name() + '" to port "' +
+                       candidate.get_name() + '"')
                 if candidate.get_label() != sp.get_label():
-                    err.append('NOTICE: Mapping port "' + sp.get_name() +
-                               '" to port "' + candidate.get_name() + '"')
+                    err.append('NOTICE: ' + msg)
+                else:
+                    err.append('INFO: ' + msg)
                 tmp_target_port_list.pop(candidate_nr)
             else:
                 err.append('WARN: Could not map port %s' % (sp.get_name()))
@@ -208,7 +237,13 @@ class CoreModule:
         ret, err = True, []
         self._lag_mapping_s2t, self._lag_mapping_t2s = {}, {}
         for sl in self.source.get_lags():
-            if not sl.is_configured() or sl.is_disabled_only():
+            sln = sl.get_name()
+            pred_conf = sl.is_configured()
+            pred_ndv = self.source.is_port_in_non_default_vlan(sln)
+            pred_dis = sl.is_disabled_only()
+            pred_acc = sl.accidental_config_only()
+            if (not (pred_conf or pred_ndv) or
+                    (pred_conf and (pred_dis or pred_acc))):
                 continue
             for tl in self.target.get_lags():
                 if not tl.get_name() in self._lag_mapping_t2s:
@@ -220,8 +255,10 @@ class CoreModule:
                    len(self.target.get_lags()) < self.target.get_max_lag()):
                     new_lag_ports = [self._port_mapping_s2t[p.get_name()]
                                      for p in self.source.get_ports()
-                                     if (p.get_lacp_aadminkey() ==
-                                         sl.get_lacp_aadminkey())]
+                                     if ((p.get_lacp_aadminkey() ==
+                                          sl.get_lacp_aadminkey()) and
+                                         (p.get_lacp_enabled() ==
+                                          sl.get_lacp_enabled()))]
                     new_lag_name = self.target.create_lag_name(sl.get_label(),
                                                                new_lag_ports)
                     if not new_lag_name:
@@ -234,6 +271,7 @@ class CoreModule:
                         new_lag = LAG.LAG(*param)
                         if self._apply_defaults:
                             self.target.apply_default_lag_settings(new_lag)
+                        new_lag.transfer_config(sl)
                         error = self.target.add_lag(new_lag)
                         if error:
                             err.append(error)
@@ -251,6 +289,7 @@ class CoreModule:
     def transfer_config(self):
         """Transfer the current source switch configuration to the target."""
         ret = []
+
         # port configuration
         for sp in self.source.get_ports():
             tp_name = self._port_mapping_s2t.get(sp.get_name())
@@ -263,6 +302,7 @@ class CoreModule:
                 if sp.is_configured():
                     ret.append('ERROR: Port "' + sp.get_name() + '" is '
                                'configured, but not mapped to target switch')
+
         # VLAN configuration
         source_vlan_list = self.source.get_all_vlans()
         target_ports = self.target.get_ports()
@@ -293,7 +333,8 @@ class CoreModule:
             else:
                 ret.append('INFO: LAG "' + sl_name + '" not mapped to'
                            ' target switch, no config transferred')
-                if sl.is_configured() and not sl.is_disabled_only():
+                if sl.is_configured() and not (sl.is_disabled_only() or
+                                               sl.accidental_config_only()):
                     ret.append('ERROR: LAG "' + sl_name + '" is '
                                'configured, but not mapped to target switch')
                 elif sl.is_configured() and sl.is_disabled_only():
@@ -304,16 +345,33 @@ class CoreModule:
         source_stps = self.source.get_stps()
         target_stps = self.target.get_stps()
         nr_src_stps, nr_of_target_stps = len(source_stps), len(target_stps)
-        if nr_src_stps != 0 or nr_of_target_stps != 0:
-            if nr_src_stps > nr_of_target_stps:
-                for i in range(0, nr_src_stps - nr_of_target_stps):
-                    empty_stp = STP.STP()
-                    self.target.add_stp(empty_stp)
-            elif nr_src_stps < nr_of_target_stps:
-                self.target.delete_last_n_stps(nr_of_target_stps - nr_src_stps)
-            for (s_stp, t_stp) in zip(source_stps, target_stps):
-                t_stp.transfer_config(s_stp)
+        # transfer STP instances from source to target switch
+        # keep target switch defaults by transfering to existing instances
+        for (s_stp, t_stp) in zip(source_stps, target_stps):
+            t_stp.transfer_config(s_stp)
+        # transfer remaining source STP instances
+        if nr_src_stps > nr_of_target_stps:
+            for s_stp in source_stps[-(nr_src_stps - nr_of_target_stps):]:
+                new_stp = STP.STP()
+                new_stp.transfer_config(s_stp)
+                self.target.add_stp(new_stp)
+        # remove extra STP instances from target switch
+        if nr_of_target_stps > nr_src_stps:
+            self.target.delete_last_n_stps(nr_of_target_stps - nr_src_stps)
 
+        # ACL configuration
+        for acl in self.source.get_acls():
+            number, name = acl.get_number(), acl.get_name()
+            new_acl = ACL.ACL(number, name)
+            for ace in acl.get_entries():
+                new_ace = ACL.ACE(ace.get_number(), ace.get_action(),
+                                  ace.get_protocol(), ace.get_source(),
+                                  ace.get_source_mask(), ace.get_source_op(),
+                                  ace.get_source_port(), ace.get_dest(),
+                                  ace.get_dest_mask(), ace.get_dest_op(),
+                                  ace.get_dest_port())
+                new_acl.add_ace(new_ace)
+            self.target.add_complete_acl(new_acl)
         return ret
 
     def translate(self, config):
@@ -338,6 +396,8 @@ class CoreModule:
                        'source to target.')
             return (translation, err)
 
+        config, errors = self.source.normalize_config(config)
+        err.extend(errors)
         config, errors = self.source.expand_macros(config)
         err.extend(errors)
 

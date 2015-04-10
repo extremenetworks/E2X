@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -50,6 +50,7 @@ class VLAN_test(unittest.TestCase):
         cls.ErrorStart = 'ERROR: '
         cls.WarnStart = 'WARN: '
         cls.NoticeStart = 'NOTICE: '
+        cls.InfoStart = 'INFO: '
 
     def setUp(self):
         self.vl = VLAN.VLAN(switch=self.mockSwitch)
@@ -413,11 +414,11 @@ class VLAN_test(unittest.TestCase):
         lag_mapping = {'lag.0.1': '1'}
         noticeStr = self.NoticeStart + 'VLAN configuration of port ' + \
             '{} shadowed by LAG configuration'
-        warnStr = self.WarnStart + 'Port "{}" in VLAN "' + \
+        infoStr = self.InfoStart + 'Port "{}" in VLAN "' + \
             str(srcVlan.get_tag()) + '" ({}) omitted because of LAG with ' + \
             'same target port name'
         expected = [noticeStr.format(eg_tagged_name),
-                    warnStr.format(eg_tagged_name, 'tagged, egress')]
+                    infoStr.format(eg_tagged_name, 'tagged, egress')]
 
         result = self.vl.transfer_config(srcVlan, portMapping, lag_mapping,
                                          unmapped)
@@ -448,6 +449,29 @@ class VLAN_test(unittest.TestCase):
         result = [el for el in result if not el.startswith('DEBUG: ')]
 
         self.assertEqual(expected, result)
+
+    def test_contains_port(self):
+        egressPort1Name = 'e1'
+        egressPort2Name = 'e2'
+        ingressPort1Name = 'i1'
+        ingressPort2Name = 'i2'
+        notIncludedPort1Name = 'n1'
+        tagged = 'tagged'
+        untagged = 'untagged'
+        self.vl._egress_ports.append((egressPort1Name, tagged))
+        self.vl._egress_ports.append((egressPort2Name, untagged))
+        self.vl._egress_ports.append((ingressPort1Name, tagged))
+        self.vl._egress_ports.append((ingressPort2Name, untagged))
+        result1 = self.vl.contains_port(egressPort1Name)
+        result2 = self.vl.contains_port(egressPort2Name)
+        result3 = self.vl.contains_port(ingressPort1Name)
+        result4 = self.vl.contains_port(ingressPort2Name)
+        result5 = self.vl.contains_port(notIncludedPort1Name)
+        self.assertTrue(result1)
+        self.assertTrue(result2)
+        self.assertTrue(result3)
+        self.assertTrue(result4)
+        self.assertFalse(result5)
 
 if __name__ == '__main__':
     unittest.main()

@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -49,6 +49,7 @@ class EosClearPortLacpCommand_test(unittest.TestCase):
 
         cls.ErrorStart = 'ERROR: '
         cls.WarningStart = 'WARN: '
+        cls.NoticeStart = 'NOTICE: '
 
     def setUp(self):
         self.cmd = EOS_read.EosClearPortLacpCommand(self.mockSwitch)
@@ -59,7 +60,7 @@ class EosClearPortLacpCommand_test(unittest.TestCase):
 
     def test_default(self):
         line = 'foo'
-        expected = self.WarningStart + \
+        expected = self.NoticeStart + \
             'Ignoring unknown command "clear port lacp ' + line + '"'
 
         result = self.cmd.onecmd(line)

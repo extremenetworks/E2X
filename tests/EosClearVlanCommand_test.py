@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -57,7 +57,7 @@ class EosClearVlanCommand_test(unittest.TestCase):
 
     def test_default(self):
         line = 'foo'
-        expected = self.WarningStart + \
+        expected = self.NoticeStart + \
             'Ignoring unknown command "clear vlan ' + line + '"'
 
         result = self.cmd.onecmd(line)

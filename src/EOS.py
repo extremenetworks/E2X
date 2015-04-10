@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -57,6 +57,7 @@ class EosSwitch(Switch.Switch):
     Methods:
     apply_default_settings() applies EOS defaults to the switch.
     apply_default_lag_settings() applies EOS LAG defaults to the switch.
+    normalize_config() converts EOS keywords to lower case.
     expand_macros() expands macro commands in the input configuration.
     """
 
@@ -75,9 +76,9 @@ class EosSwitch(Switch.Switch):
             lag = LAG.LAG(number=i, name=lag_name, use_lacp=True)
             self._lags.append(lag)
 
-    def _build_port_name(self, index, name_dict):
+    def _build_port_name(self, index, name_dict, slot):
         sep = self._sep
-        name = name_dict['prefix'] + sep + str(self._slot) + sep + str(index)
+        name = name_dict['prefix'] + sep + str(slot) + sep + str(index)
         return name
 
     def apply_default_settings(self):
@@ -171,6 +172,31 @@ class EosSwitch(Switch.Switch):
                           (n_port in Utils.expand_sequence(d_port)))
             ret = speed_match and slot_match and port_match
         return ret
+
+    def normalize_config(self, config):
+        """Convert keywords to lower case."""
+        keywords = {'enable', 'disable', 'cfgname', 'rev', 'sid', 'mstp',
+                    'rstp', 'stpcompatible', 'version', 'msti', 'mstmap',
+                    'mstcfgid', 'priority', 'spanguard', 'autoedge',
+                    'portadmin', 'adminedge', 'egress', 'create', 'name',
+                    'lacp', 'port', 'alias', 'speed', 'duplex', 'negotiation',
+                    'jumbo', 'vlan', 'aadminkey', 'static', 'singleportlag',
+                    'access-group', 'access-list', 'spantree', 'set', 'clear',
+                    'router', 'exit', 'configure', 'terminal', 'interface',
+                    'ip', 'udp', 'tcp', 'icmp', 'address', 'sequence', 'any',
+                    'host', 'permit', 'deny', 'in', 'out', 'key', 'prompt',
+                    'system', 'contact', 'location', 'banner', 'ssh', 'telnet',
+                    'webview', 'logout', 'logging', 'server', 'sntp', 'client',
+                    'summertime', 'recurring', 'timezone', 'radius', 'realm',
+                    'management-access', 'network-access', 'all', 'tacacs',
+                    'snmp', 'targetaddr', 'login', 'shutdown', 'no',
+                    'helper-address', 'routing', 'cdp', 'ciscodp', 'lldp',
+                    'broadcast', 'ingress-filter', 'trap', 'mac', 'lock',
+                    'igmp', 'ipv6', 'ipv6mode', 'inbound', 'outbound',
+                    'loopback',
+                    }
+        comments = self.get_cmd().get_comment()
+        return (Utils.words_to_lower(config, keywords, comments), [])
 
     def expand_macros(self, config):
         """Expand macro commands in the configuration to basic commands."""
@@ -267,70 +293,121 @@ class EosSwitch(Switch.Switch):
         return expanded_lst, error_lst
 
 
-class C5K125_48P2(EosSwitch):
+# Dictionary of hardware descriptions
+hardware_descriptions = {
+    'C5K125-24': [
+        '{"ports":{"label":{"start":1,"end":22},'
+        '"name":{"prefix":"ge","start":1,"end":22},'
+        '"data":{"type":"rj45","speedrange":[10,100,1000],"PoE":"no"}}}',
+        '{"ports":{"label":{"start":23,"end":24},'
+        '"name":{"prefix":"ge","start":23,"end":24},'
+        '"data":{"type":"combo","speedrange":[10,100,1000],"PoE":"no"}}}',
+        '{"ports":{"label":{"start":25,"end":26},'
+        '"name":{"prefix":"tg","start":25,"end":26},'
+        '"data":{"type":"sfp","speedrange":[1000,10000],"PoE":"no"}}}',
+    ],
+    'C5K125-24P2': [
+        '{"ports":{"label":{"start":1,"end":22},'
+        '"name":{"prefix":"ge","start":1,"end":22},'
+        '"data":{"type":"rj45","speedrange":[10,100,1000],"PoE":"yes"}}}',
+        '{"ports":{"label":{"start":23,"end":24},'
+        '"name":{"prefix":"ge","start":23,"end":24},'
+        '"data":{"type":"combo","speedrange":[10,100,1000],"PoE":"yes"}}}',
+        '{"ports":{"label":{"start":25,"end":26},'
+        '"name":{"prefix":"tg","start":25,"end":26},'
+        '"data":{"type":"sfp","speedrange":[1000,10000],"PoE":"no"}}}',
+    ],
+    'C5K125-48P2': [
+        '{"ports":{"label":{"start":1,"end":46},'
+        '"name":{"prefix":"ge","start":1,"end":46},'
+        '"data":{"type":"rj45","speedrange":[10,100,1000],"PoE":"yes"}}}',
+        '{"ports":{"label":{"start":47,"end":48},'
+        '"name":{"prefix":"ge","start":47,"end":48},'
+        '"data":{"type":"combo","speedrange":[10,100,1000],"PoE":"yes"}}}',
+        '{"ports":{"label":{"start":49,"end":50},'
+        '"name":{"prefix":"tg","start":49,"end":50},'
+        '"data":{"type":"sfp","speedrange":[1000,10000],"PoE":"no"}}}',
+    ],
+    'C5K125-48': [
+        '{"ports":{"label":{"start":1,"end":46},'
+        '"name":{"prefix":"ge","start":1,"end":46},'
+        '"data":{"type":"rj45","speedrange":[10,100,1000],"PoE":"no"}}}',
+        '{"ports":{"label":{"start":47,"end":48},'
+        '"name":{"prefix":"ge","start":47,"end":48},'
+        '"data":{"type":"combo","speedrange":[10,100,1000],"PoE":"no"}}}',
+        '{"ports":{"label":{"start":49,"end":50},'
+        '"name":{"prefix":"tg","start":49,"end":50},'
+        '"data":{"type":"sfp","speedrange":[1000,10000],"PoE":"no"}}}',
+    ],
+    'C5G124-24': [
+        '{"ports":{"label":{"start":1,"end":20},'
+        '"name":{"prefix":"ge","start":1,"end":20},'
+        '"data":{"type":"rj45","speedrange":[10,100,1000],"PoE":"no"}}}',
+        '{"ports":{"label":{"start":21,"end":24},'
+        '"name":{"prefix":"ge","start":21,"end":24},'
+        '"data":{"type":"combo","speedrange":[10,100,1000],"PoE":"no"}}}',
+    ],
+    'C5G124-24P2': [
+        '{"ports":{"label":{"start":1,"end":20},'
+        '"name":{"prefix":"ge","start":1,"end":20},'
+        '"data":{"type":"rj45","speedrange":[10,100,1000],"PoE":"yes"}}}',
+        '{"ports":{"label":{"start":21,"end":24},'
+        '"name":{"prefix":"ge","start":21,"end":24},'
+        '"data":{"type":"combo","speedrange":[10,100,1000],"PoE":"yes"}}}',
+    ],
+    'C5G124-48': [
+        '{"ports":{"label":{"start":1,"end":44},'
+        '"name":{"prefix":"ge","start":1,"end":44},'
+        '"data":{"type":"rj45","speedrange":[10,100,1000],"PoE":"no"}}}',
+        '{"ports":{"label":{"start":45,"end":48},'
+        '"name":{"prefix":"ge","start":45,"end":48},'
+        '"data":{"type":"combo","speedrange":[10,100,1000],"PoE":"no"}}}',
+    ],
+    'C5G124-48P2': [
+        '{"ports":{"label":{"start":1,"end":44},'
+        '"name":{"prefix":"ge","start":1,"end":44},'
+        '"data":{"type":"rj45","speedrange":[10,100,1000],"PoE":"yes"}}}',
+        '{"ports":{"label":{"start":45,"end":48},'
+        '"name":{"prefix":"ge","start":45,"end":48},'
+        '"data":{"type":"combo","speedrange":[10,100,1000],"PoE":"yes"}}}',
+    ],
+    'C5K175-24': [
+        '{"ports":{"label":{"start":1,"end":24},'
+        '"name":{"prefix":"ge","start":1,"end":24},'
+        '"data":{"type":"sfp","speedrange":[1000],"PoE":"no"}}}',
+        '{"ports":{"label":{"start":25,"end":26},'
+        '"name":{"prefix":"tg","start":25,"end":26},'
+        '"data":{"type":"sfp","speedrange":[1000,10000],"PoE":"no"}}}',
+    ],
+}
 
-    """C5K125-48P2 switch definition for E2X."""
 
-    def __init__(self):
+class EosSwitchHardware(EosSwitch):
+
+    def __init__(self, model):
         super().__init__()
-        self._model = 'C5K125-48P2'
-        self._hw_desc = [
-            '{"ports":{"label":{"start":1,"end":46},'
-            '"name":{"prefix":"ge","start":1,"end":46},'
-            '"data":{"type":"rj45","speedrange":[10,100,1000],"PoE":"yes"}}}',
-            '{"ports":{"label":{"start":47,"end":48},'
-            '"name":{"prefix":"ge","start":47,"end":48},'
-            '"data":{"type":"combo","speedrange":[10,100,1000],"PoE":"yes"}}}',
-            '{"ports":{"label":{"start":49,"end":50},'
-            '"name":{"prefix":"tg","start":49,"end":50},'
-            '"data":{"type":"sfp","speedrange":[1000,10000],"PoE":"no"}}}',
-        ]
-        self.setup_hw()
-
-
-class C5K125_48(EosSwitch):
-
-    """C5K125-48 switch definition for E2X."""
-
-    def __init__(self):
-        super().__init__()
-        self._model = 'C5K125-48'
-        self._hw_desc = [
-            '{"ports":{"label":{"start":1,"end":46},'
-            '"name":{"prefix":"ge","start":1,"end":46},'
-            '"data":{"type":"rj45","speedrange":[10,100,1000],"PoE":"no"}}}',
-            '{"ports":{"label":{"start":47,"end":48},'
-            '"name":{"prefix":"ge","start":47,"end":48},'
-            '"data":{"type":"combo","speedrange":[10,100,1000],"PoE":"no"}}}',
-            '{"ports":{"label":{"start":49,"end":50},'
-            '"name":{"prefix":"tg","start":49,"end":50},'
-            '"data":{"type":"sfp","speedrange":[1000,10000],"PoE":"no"}}}',
-        ]
-        self.setup_hw()
-
-
-class C5G124_24(EosSwitch):
-
-    """C5G124-24 switch definition for E2X."""
-
-    def __init__(self):
-        super().__init__()
-        self._model = 'C5G124-24'
-        self._hw_desc = [
-            '{"ports":{"label":{"start":1,"end":20},'
-            '"name":{"prefix":"ge","start":1,"end":20},'
-            '"data":{"type":"rj45","speedrange":[10,100,1000],"PoE":"no"}}}',
-            '{"ports":{"label":{"start":21,"end":24},'
-            '"name":{"prefix":"ge","start":21,"end":24},'
-            '"data":{"type":"combo","speedrange":[10,100,1000],"PoE":"no"}}}',
-        ]
-        self.setup_hw()
+        self._model = model
+        self._hw_desc = []
+        if ',' in model:
+            self._stack = True
+        switches = self._model.split(',')
+        for s in switches:
+            if not s:
+                continue
+            self._hw_desc.append(hardware_descriptions[s])
+        self._setup_hw()
 
 # Dictionary of supported switch models used to register devices in the CM
 devices = {
-    'C5K125-48P2': {'use_as': 'source', 'os': 'EOS', 'class': C5K125_48P2},
-    'C5K125-48': {'use_as': 'source', 'os': 'EOS', 'class': C5K125_48},
-    'C5G124-24': {'use_as': 'source', 'os': 'EOS', 'class': C5G124_24},
+    'C5G124-24': {'use_as': 'source', 'os': 'EOS'},
+    'C5G124-24P2': {'use_as': 'source', 'os': 'EOS'},
+    'C5G124-48': {'use_as': 'source', 'os': 'EOS'},
+    'C5G124-48P2': {'use_as': 'source', 'os': 'EOS'},
+    'C5K125-24': {'use_as': 'source', 'os': 'EOS'},
+    'C5K125-24P2': {'use_as': 'source', 'os': 'EOS'},
+    'C5K125-48': {'use_as': 'source', 'os': 'EOS'},
+    'C5K125-48P2': {'use_as': 'source', 'os': 'EOS'},
+    'C5K175-24': {'use_as': 'source', 'os': 'EOS'},
     }
 
 # vim:filetype=python:expandtab:shiftwidth=4:tabstop=4

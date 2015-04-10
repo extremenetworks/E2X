@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -35,7 +35,7 @@ import EOS
 
 class Configuration_test(unittest.TestCase):
     def setUp(self):
-        self.sw = EOS.C5K125_48P2()
+        self.sw = EOS.EosSwitchHardware('C5K125-48P2')
 
     def test_setUp_ok(self):
         self.assertEqual('C5K125-48P2', self.sw._model)

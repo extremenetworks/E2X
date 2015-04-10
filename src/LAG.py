@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -67,6 +67,30 @@ class LAG(Port.Port):
                 self._short_description[1] != reason and
                 self._lacp_enabled[1] != reason and
                 self._lacp_aadminkey[1] != reason)
+
+    def accidental_config_only(self):
+        '''Some commands affect all ports of the switch, including LAGs.
+
+        Having such a configuration affecting a LAG does not imply the LAG
+        is actually used.
+        '''
+        reason = 'config'
+        if (self._speed[1] == reason or
+                # ignore admin state (set port disable *.*.*)
+                self._duplex[1] == reason or
+                self._auto_neg[1] == reason or
+                self._description[1] == reason or
+                self._short_description[1] == reason or
+                self._jumbo[1] == reason or
+                self._lacp_enabled[1] == reason or
+                self._lacp_aadminkey[1] == reason or
+                self._stp_enabled[1] == reason or
+                # ignore switch-wide, on-by-default auto-edge feature
+                self._stp_edge[1] == reason or
+                # ignore SpanGuard (en/disabled per switch)
+                self._ipv4_acl_in[1] == reason):
+            return False
+        return True
 
     def set_speed(self, speed, reason):
         return True

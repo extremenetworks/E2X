@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -47,7 +47,7 @@ class EosClearPortCommand_test(unittest.TestCase):
 
     def test_do_lacp_fail(self):
         confFragment = 'stp'
-        expected = 'WARN: Ignoring unknown command "clear port ' + \
+        expected = 'NOTICE: Ignoring unknown command "clear port ' + \
             confFragment + '"'
 
         result = self.cmd.onecmd('stp')

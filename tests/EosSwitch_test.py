@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -68,13 +68,13 @@ class EosSwitch_test(unittest.TestCase):
         self.sw = EOS.EosSwitch()
         self.firstGePortName = \
             self.sw._build_port_name(str(self.gePortNameDict['start']),
-                                     self.gePortNameDict)
+                                     self.gePortNameDict, 1)
         self.lastGePortName = \
             self.sw._build_port_name(str(self.gePortNameDict['end']),
-                                     self.gePortNameDict)
+                                     self.gePortNameDict, 1)
         self.firstTePortName = \
             self.sw._build_port_name(str(self.tePortNameDict['start']),
-                                     self.tePortNameDict)
+                                     self.tePortNameDict, 1)
 
     def removeLinesStartingWithStrFromList(self, str, lst):
         result = [el for el in lst if not el.startswith(str)]
@@ -82,14 +82,15 @@ class EosSwitch_test(unittest.TestCase):
 
     def test_build_port_name(self):
         label = 1
+        slot = 1
         sep = self.sw._sep
         expected = self.gePortNameDict['prefix']
         expected += sep
-        expected += str(self.sw.DEFAULT_SLOT_NR)
+        expected += str(slot)
         expected += sep
         expected += str(label)
 
-        result = self.sw._build_port_name(1, self.gePortNameDict)
+        result = self.sw._build_port_name(1, self.gePortNameDict, slot)
 
         self.assertEqual(expected, result)
 
@@ -97,7 +98,7 @@ class EosSwitch_test(unittest.TestCase):
         with patch('Port.Port') as port:
             port.return_value = None
 
-            self.sw.add_ports(self.gePortsDict)
+            self.sw._add_ports(self.gePortsDict, slot=1)
 
             expected = [call(str(self.gePortsLabelStart),
                         self.firstGePortName, {}),
@@ -114,7 +115,7 @@ class EosSwitch_test(unittest.TestCase):
         with patch('Port.Port') as port:
             port.return_value = None
 
-            self.sw.add_ports(self.tePortsDict)
+            self.sw._add_ports(self.tePortsDict, slot=1)
 
             self.assertEqual(expected, port.call_args_list)
 

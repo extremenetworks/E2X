@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -62,6 +62,15 @@ class XosConfigWriter(Switch.ConfigWriter):
     def port(self):
         conf, err = [], []
         reason = 'written'
+        # stacking mode uses different port names and requires prior
+        # configuration, so emit a NOTICE message
+        if self._switch.is_stack():
+            err.append('NOTICE: Creating configuration for switch / stack in'
+                       ' stacking mode')
+            err.append('NOTICE: Stacking must be configured before applying'
+                       ' this configuration')
+            err.append('NOTICE: See the ExtremeXOS Configuration Guide on how'
+                       ' to configure stacking')
         for p in self._switch.get_ports():
             # enable / disable port
             if (p.get_admin_state_reason() and
@@ -130,6 +139,20 @@ class XosConfigWriter(Switch.ConfigWriter):
                 line += 'jumbo-frame ports ' + p.get_name()
                 conf.append(line)
                 p.set_jumbo(state, reason)
+            # inbound ACL
+            if (p.get_ipv4_acl_in_reason() and
+                    p.get_ipv4_acl_in_reason().startswith('transfer')):
+                acl_lst = p.get_ipv4_acl_in()
+                acl_id = None
+                if len(acl_lst) > 1:
+                    err.append('ERROR: EXOS allows only one ACL per port')
+                elif len(acl_lst) == 1:
+                    acl_id = acl_lst[0]
+                if acl_id is not None:
+                    line = ('configure access-list acl_' + str(acl_id) +
+                            ' ports ' + p.get_name() + ' ingress')
+                    conf.append(line)
+                    p.set_ipv4_acl_in(acl_id, reason)
 
         return conf, err
 
@@ -181,6 +204,17 @@ class XosConfigWriter(Switch.ConfigWriter):
             msg += vlan.get_name() + '"'
             err.append(msg)
             vlan.set_name('Default')
+        # remove default PVID of 1 if VLAN 1 egress is missing
+        # this can result from 'clear vlan egress 1 *.*.*'
+        untagged_egress = vlan.get_egress_ports('untagged')
+        tagged_egress = vlan.get_egress_ports('tagged')
+        untagged_ingress = vlan.get_ingress_ports('untagged')
+        tagged_ingress = vlan.get_ingress_ports('tagged')
+        for p_name in untagged_ingress:
+            if p_name not in untagged_egress and p_name not in tagged_egress:
+                err.append('NOTICE: Port "' + str(p_name) + '" has PVID of 1, '
+                           'but VLAN 1 missing from egress, ignoring PVID')
+                vlan.del_ingress_port(p_name, 'untagged')
         return err
 
     def _normalize_vlan(self, vlan):
@@ -212,26 +246,6 @@ class XosConfigWriter(Switch.ConfigWriter):
         while (old_e_len < len(untagged_egress) or
                old_i_len < len(untagged_ingress)):
             old_e_len, old_i_len = len(untagged_egress), len(untagged_ingress)
-            for p_name in untagged_egress:
-                if p_name in tagged_egress:
-                    err.append('ERROR: Port "' + p_name + '" both untagged ' +
-                               'and tagged in VLAN "' + str(v_name) +
-                               '" (tag ' + str(v_tag) + ')')
-                    err.append('ERROR: Removing tagged egress of "' +
-                               str(v_name) + '" VLAN from port "' + p_name +
-                               '"')
-                    vlan.del_egress_port(p_name, 'tagged')
-                if p_name not in untagged_ingress:
-                    err.append('ERROR: Port "' + str(p_name) + '" in untagged '
-                               'egress list of VLAN "' + str(v_name) +
-                               '" missing in untagged ingress list: adding '
-                               'to ingress')
-                    vlan.add_ingress_port(p_name, 'untagged')
-            # refresh vlan list copies
-            untagged_egress = vlan.get_egress_ports('untagged')
-            tagged_egress = vlan.get_egress_ports('tagged')
-            untagged_ingress = vlan.get_ingress_ports('untagged')
-            tagged_ingress = vlan.get_ingress_ports('tagged')
             for p_name in tagged_egress:
                 if p_name not in tagged_ingress:
                     err.append('ERROR: Port "' + str(p_name) +
@@ -245,15 +259,18 @@ class XosConfigWriter(Switch.ConfigWriter):
             untagged_ingress = vlan.get_ingress_ports('untagged')
             tagged_ingress = vlan.get_ingress_ports('tagged')
             for p_name in untagged_ingress:
+                # PVID set to VID that is tagged on trunk
                 if p_name in tagged_ingress:
-                    err.append('ERROR: Port "' + p_name + '" both untagged '
+                    err.append('WARN: Port "' + p_name + '" both untagged '
                                'and tagged in VLAN "' + str(v_name) +
                                '" (tag ' + str(v_tag) + ')')
-                    err.append('ERROR: Removing tagged ingress of "' +
-                               str(v_name) + '" VLAN from port "' + p_name +
-                               '"')
-                    vlan.del_ingress_port(p_name, 'tagged')
-                if p_name not in untagged_egress:
+                    err.append('WARN: Removing untagged ingress of "' +
+                               str(v_name) + '" VLAN ' +
+                               '(tag ' + str(v_tag) + ') from port "' +
+                               p_name + '"')
+                    vlan.del_ingress_port(p_name, 'untagged')
+                # PVID not tagged on trunk, but neither untagged on port
+                elif p_name not in untagged_egress:
                     err.append('ERROR: Port "' + p_name + '" in untagged '
                                'ingress list of VLAN "' + str(v_name) +
                                '" missing in untagged egress list: adding to'
@@ -345,6 +362,19 @@ class XosConfigWriter(Switch.ConfigWriter):
                 c, e = self._handle_additional_vlan(vlan)
             conf.extend(c)
             err.extend(e)
+            ipv4_acl_in_lst = vlan.get_ipv4_acl_in()
+            if len(ipv4_acl_in_lst) > 1:
+                err.append('ERROR: Only one ACL per VLAN possible with EXOS')
+                ipv4_acl_in = None
+            elif ipv4_acl_in_lst:
+                ipv4_acl_in = ipv4_acl_in_lst[0]
+            else:
+                ipv4_acl_in = None
+            if isinstance(ipv4_acl_in, int):
+                ipv4_acl_in = 'acl_' + str(ipv4_acl_in)
+            if ipv4_acl_in:
+                conf.append('configure access-list ' + ipv4_acl_in + ' vlan ' +
+                            vlan.get_name() + ' ingress')
         errors = self._verify_untagged_ports()
         err.extend(errors)
         return conf, err
@@ -358,19 +388,23 @@ class XosConfigWriter(Switch.ConfigWriter):
             key = l.get_lacp_aadminkey()
             lacp = l.get_lacp_enabled()
             for p in physical_ports:
-                if p.get_lacp_aadminkey() == key:
+                p_key = p.get_lacp_aadminkey()
+                p_key_is_default = (p.get_lacp_aadminkey_reason() ==
+                                    'default' or
+                                    p.get_lacp_aadminkey_reason() ==
+                                    'transfer_def')
+                p_lacp = p.get_lacp_enabled()
+                if p_key == key and (p_lacp == lacp or not p_key_is_default):
                     l.add_member_port(p.get_name())
                     p.set_lacp_aadminkey(key, reason)
-                    if p.get_lacp_enabled() != lacp:
+                    if p_lacp != lacp:
                         err.append('ERROR: LAG "' + l.get_name() +
                                    '" configured with LACP ' +
                                    ('enabled' if lacp else 'disabled') +
                                    ', but member port "' + p.get_name() +
                                    '" has LACP ' +
-                                   ('enabled' if p.get_lacp_enabled()
-                                    else 'disabled'))
-                    else:
-                        p.set_lacp_enabled(lacp, reason)
+                                   ('enabled' if p_lacp else 'disabled'))
+                    p.set_lacp_enabled(p_lacp, reason)
             if not l.get_members():
                 err.append('WARN: LAG with key "' + str(key) +
                            '" configured, but no ports associated')
@@ -507,7 +541,8 @@ class XosConfigWriter(Switch.ConfigWriter):
             for stp in stp_list:
                 stp_name = stp.get_name()
                 if not stp_name:
-                    if stp.get_version() == 'mstp' and stp.get_mst_instance():
+                    if (stp.get_version() == 'mstp' and
+                            stp.get_mst_instance() is not None):
                         stp_name = 's' + str(stp.get_mst_instance())
                         stp.set_name(stp_name, 'generated')
                         err.append('INFO: Generated name "' + stp_name +
@@ -660,6 +695,92 @@ class XosConfigWriter(Switch.ConfigWriter):
             err.append('WARN: XOS does not send BPDUs on RSTP/MSTP edge'
                        ' ports without edge-safeguard')
         # return STP configuration and error messages
+        return conf, err
+
+    def acl(self):
+        conf, err = [], []
+        acl_nr = 0
+        for acl in self._switch.get_acls():
+            acl_lst = []
+            # generate a name for the ACL
+            acl_nr += 1
+            acl_name = ''
+            if not acl.get_name() and not acl.get_number():
+                acl_name = 'acl_nr' + str(acl_nr)
+            elif acl.get_number():
+                acl_name = 'acl_' + str(acl.get_number())
+            else:
+                acl_name = 'acl_' + str(acl.get_name())
+            acl.set_name(acl_name)
+            acl_lst.append(acl_name)
+            ace_nr = 0
+            ace_name = None
+            for ace in acl.get_entries():
+                # generate a name for the entry
+                ace_nr += 10
+                ace_name = ace.get_number()
+                if not ace_name:
+                    ace_name = str(ace_nr)
+                else:
+                    ace_name = str(ace_name)
+                # generate the match statements
+                match_lst = []
+                match_proto = ace.get_protocol()
+                if match_proto and match_proto != 'ip':
+                    match_lst.append('protocol ' + match_proto)
+                match_source = ace.get_source()
+                match_source_mask = ace.get_source_mask_inverted()
+                if (match_source and match_source_mask and
+                        (str(match_source) != '0.0.0.0' or
+                         str(match_source_mask) != '0.0.0.0')):
+                    match_lst.append('source-address ' + str(match_source) +
+                                     '/' + str(match_source_mask))
+                match_source_op = ace.get_source_op()
+                match_source_port = ace.get_source_port()
+                if match_source_op and match_source_port:
+                    if match_source_op == 'eq':
+                        match_lst.append('source-port ' +
+                                         str(match_source_port))
+                    else:
+                        err.append('ERROR: ACL source operator "' +
+                                   match_source_op + '" not supported')
+
+                match_dest = ace.get_dest()
+                match_dest_mask = ace.get_dest_mask_inverted()
+                if (match_dest and match_dest_mask and
+                        (str(match_dest) != '0.0.0.0' or
+                         str(match_dest_mask) != '0.0.0.0')):
+                    match_lst.append('destination-address ' + str(match_dest) +
+                                     '/' + str(match_dest_mask))
+                match_dest_op = ace.get_dest_op()
+                match_dest_port = ace.get_dest_port()
+                if match_dest_op and match_dest_port:
+                    if match_dest_op == 'eq':
+                        match_lst.append('destination-port ' +
+                                         str(match_dest_port))
+                    else:
+                        err.append('ERROR: ACL destination operator "' +
+                                   match_dest_op + '" not supported')
+                # generate the action statement
+                action = ace.get_action()
+                # create a string describing this ACE
+                ace_str = 'entry ' + ace_name + ' {\n  if {\n'
+                for match in match_lst:
+                    ace_str += '    ' + match + ';\n'
+                ace_str += '  } then {\n'
+                ace_str += '    ' + str(action) + ';\n  }\n}\n'
+                acl_lst.append(ace_str)
+            # append explicit deny any [any] to match EOS ACLs
+            ace_nr += 10
+            if ace_name is not None:
+                if (int(ace_name) >= ace_nr):
+                    ace_nr = (int(ace_name) + 10) // 10 * 10
+                ace_str = self._switch.get_cmd().get_comment()[0]
+                ace_str += ' next entry added to match EOS ACL implicit deny\n'
+                ace_str += ('entry ' + str(ace_nr) +
+                            ' {\n  if {\n  } then {\n    deny;\n  }\n}\n')
+                acl_lst.append(ace_str)
+            conf.append(acl_lst)
         return conf, err
 
 # vim:filetype=python:expandtab:shiftwidth=4:tabstop=4

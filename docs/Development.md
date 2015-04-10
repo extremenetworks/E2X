@@ -69,6 +69,30 @@ configuration is compared to the target switch configuration and differences
 are copied over. The copied configuration is then used to create an XOS
 script file (text configuration file) as output.
 
+## Single Line Commands
+
+The EOS layer 2 configuration commands comprise a single line. Each such
+configuration line is interpreted without regard for the context. The
+configuration state of the switch is taken into account, e.g. a VLAN needs
+to be created first before it can be named.
+
+### Non-Configuration Commands
+
+Switch commands that do not change the configuration (e.g. `dir`) do not
+readily fit into the idea of translating a configuration.
+
+## Router Configuration Mode Commands
+
+The IOS like router configuration mode of EOS switches uses different
+configuration sub-modes, and IOS like configuration commands are valid
+in some sub-modes only. Therefore the configuration parser of E2X needs
+to keep additional state to correctly interpret configuration commands
+(e.g. `ip address ...` pertains to the previous `interface vlan ...`).
+
+If possible, router mode commands are translated even outside of the
+correct context resp. configuration mode, but this should result in
+a warning.
+
 ## CLI
 
 E2X uses a command line interface. The implementation is contained in the

@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -54,6 +54,16 @@ class IntegrationTest(unittest.TestCase):
     default_ignores = ["jumbo-frame", "stpd"]
     jumbo_ignore = ["jumbo-frame"]
     ignore_stpd = ["stpd"]
+    ignore_port_mapping = ["INFO: Mapping port", "NOTICE: Mapping port"]
+    ignore_outfile = ["NOTICE: Writing translated configuration to file"]
+    ignore_lag_info = ["INFO: LAG ",
+                       "NOTICE: XOS always allows single port LAGs"]
+    ignore_info_vlan_1 = ['INFO: Cannot rename VLAN 1 from "Default" to '
+                          '"DEFAULT VLAN"']
+    ignore_stpd_info = ["INFO: Creating XOS equivalent of EOS default MSTP "
+                        "respectively RSTP configuration",
+                        "INFO: XOS does not support automatic RSTP/MSTP edge "
+                        "port detection"]
 
     # our standard STP compatibility configuration
     std_stp_conf = ['configure stpd s0 delete vlan Default ports all\n',
@@ -79,6 +89,12 @@ class IntegrationTest(unittest.TestCase):
 
     def setUp(self):
         self.script_env = TestFileEnvironment(self.tmpdir)
+
+    def _acl_deny_any(self, nr=20):
+        return [
+            '# next entry added to match EOS ACL implicit deny\n',
+            'entry {}'.format(nr) + ' {\n', '  if {\n', '  } then {\n',
+            '    deny;\n', '  }\n', '}\n']
 
     # for creating test input files, takes filename (relative to scripttest
     # working directory) and list of config strings
@@ -106,7 +122,7 @@ class IntegrationTest(unittest.TestCase):
         self.assertEqual(expected_line, len(expected_content),
                          "Missing content line #{}".format(expected_line))
 
-    # verify that the given file does not contains warning messages
+    # verify that the given file does not contain warning messages
     def verify_no_warnings(self, filename):
         with open('{}/{}'.format(self.tmpdir, filename), 'r') as output_file:
             warn_found = False
@@ -210,7 +226,7 @@ class IntegrationTest(unittest.TestCase):
                                   '--ignore-defaults', '--err-unknown-lines',
                                   '--quiet', expect_error=True)
         # check if error return code is set
-        self.assertEqual(ret.returncode, 1)
+        self.assertEqual(ret.returncode, 1, "Wrong exit code")
 
     def test_case_025(self):  # check if --ignore-defaults works
         # test on empty config
@@ -239,7 +255,7 @@ class IntegrationTest(unittest.TestCase):
                                   '--abort-on-error', '--quiet',
                                   expect_error=True)
         # check if error return code is set
-        self.assertEqual(ret.returncode, 1)
+        self.assertEqual(ret.returncode, 1, "Wrong exit code")
         # check if the output file is there (it should be not)
         self.assertFalse(os.path.isfile('{}/test.xsf'.format(self.tmpdir)),
                          "Output file should not exist")
@@ -274,7 +290,8 @@ class IntegrationTest(unittest.TestCase):
         self.verify_output('stderr',
                            ['INFO: Ignoring comment "# this is a comment"\n'],
                            ["NOTICE", 'INFO: LAG',
-                            'NOTICE: XOS always allows single port LAGs'])
+                            'NOTICE: XOS always allows single port LAGs'] +
+                           self.ignore_port_mapping)
 
     def test_case_075(self):  # check that --ignore-defaults does not WARN
         self.create_input('empty.cfg', [''])
@@ -614,7 +631,7 @@ class IntegrationTest(unittest.TestCase):
                             'INFO: Creating XOS equivalent of EOS default MSTP'
                             ' respectively RSTP configuration',
                             'INFO: XOS does not support automatic RSTP/MSTP'
-                            ' edge port detection'])
+                            ' edge port detection'] + self.ignore_port_mapping)
 
     def test_case_043(self):
         self.create_input('testinput', ['set vlan name 1 "DEFAULT VLAN"\n'])
@@ -641,13 +658,11 @@ class IntegrationTest(unittest.TestCase):
                                   '--ignore-defaults', '--quiet',
                                   expect_error=True)
         self.assertEqual(ret.returncode, 1, "Wrong exit code")
-        self.assertEqual(ret.stderr, 'ERROR: Port "1" in untagged egress list '
-                         'of VLAN "None" missing in untagged ingress list: '
-                         'adding to ingress\nERROR: Port "1" has multiple '
-                         'untagged egress VLANs: (\'Default\', 1)'
-                         ' (\'SYS_NLD_0002\', 2)\n'
-                         'ERROR: Port "1" has multiple untagged ingress VLANs:'
-                         ' (\'Default\', 1) (\'SYS_NLD_0002\', 2)\n',
+        self.assertEqual(ret.stderr,
+                         'ERROR: Port "1" has multiple untagged egress VLANs: '
+                         '(\'Default\', 1) (\'SYS_NLD_0002\', 2)\n'
+                         'ERROR: Untagged VLAN egress and ingress differs for '
+                         'port "1"\n',
                          "Wrong error message")
 
 # FM LACP
@@ -880,12 +895,12 @@ class IntegrationTest(unittest.TestCase):
 
     def test_case_071(self):
         eos_conf = [
-            'set spantree mstcfgid cfgname NAME rev 42\n',
+            'set spantree mstcfgid cfgname REGION_NAME rev 42\n',
             'set spantree msti sid 1 create\n',
             'set spantree mstmap 1 sid 1\n',
         ]
         expected_conf = [
-            'configure mstp region NAME\n',
+            'configure mstp region REGION_NAME\n',
             'configure mstp revision 42\n',
             'configure stpd s0 delete vlan Default ports all\n',
             'disable stpd s0 auto-bind vlan Default\n',
@@ -966,6 +981,495 @@ class IntegrationTest(unittest.TestCase):
         self.verify_output('testoutput.xsf', expected_conf, ignore_conf)
         self.stderrToFile(ret.stderr, 'stderr')
         self.verify_output('stderr', expected_err, ignore_err)
+
+# FM ACL
+    def test_case_077(self):  # basic function test without file output
+        acl_conf = ("router\nenable\nconfigure\naccess-list 1 permit host "
+                    "55.1.2.3\nexit\nexit\nexit")
+        ret = self.script_env.run(self.script, '--ignore-defaults', '--quiet',
+                                  expect_stderr=True,
+                                  stdin=str.encode(acl_conf))
+        self.stderrToFile(ret.stdout, 'stdout')
+        self.verify_output('stdout',
+                           ['# acl_1.pol\n', 'entry 10 {\n', '  if {\n',
+                            '    source-address 55.1.2.3/255.255.255.255;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n'] +
+                           self._acl_deny_any(), [])
+
+    def test_case_078(self):  # basic file writing test
+        self.create_input('acl.cfg', ['router\n', 'enable\n', 'configure\n',
+                          'access-list 1 permit host 55.1.2.3\n', 'exit\n',
+                                      'exit\n', 'exit'])
+        self.script_env.run(self.script, 'acl.cfg', '--quiet')
+        # check if output is a file (change if output names are changed)
+        self.assertTrue(os.path.isfile('{}/acl.xsf'.format(self.tmpdir)),
+                        "Output not a file")
+        self.assertTrue(os.path.isdir('{}/acl.acls'
+                        .format(self.tmpdir)), "Output not a directory")
+        self.assertTrue(os.path.isfile('{}/acl.acls/acl_1.pol'
+                        .format(self.tmpdir)), "Output not a file")
+        # check if output is right
+        self.verify_output('acl.acls/acl_1.pol',
+                           ['entry 10 {\n', '  if {\n',
+                            '    source-address 55.1.2.3/255.255.255.255;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n'] +
+                           self._acl_deny_any(), [])
+
+    def test_case_079(self):  # check if syntactically wrong acl command fails
+        self.create_input('acl.cfg', ['router\n', 'enable\n', 'configure\n',
+                          'access-list 6 permit ip host 55.1.2.3\n', 'exit\n',
+                                      'exit\n', 'exit'])
+        ret = self.script_env.run(self.script, 'acl.cfg', '--quiet',
+                                  expect_stderr=True, expect_error=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr', ['ERROR: Invalid address in ACE config '
+                           '"access-list 6 permit ip host 55.1.2.3"\n'], [])
+        self.assertEqual(ret.returncode, 1, "Wrong exit code")
+
+    def test_case_080(self):  # test with 2 ACLs seperated by a comment char
+        self.create_input('acl.cfg',
+                          ['router\n', 'enable\n', 'configure\n',
+                           'access-list 2 deny any\n', '!\n', 'access-list 3 '
+                           'permit host 55.1.2.3\n', 'exit\n', 'exit\n',
+                           'exit'])
+        self.script_env.run(self.script, 'acl.cfg', '--quiet')
+        # check for files
+        self.assertTrue(os.path.isdir('{}/acl.acls'
+                        .format(self.tmpdir)), "Output not a directory")
+        self.assertTrue(os.path.isfile('{}/acl.acls/acl_2.pol'
+                        .format(self.tmpdir)), "Output not a file")
+        self.assertTrue(os.path.isfile('{}/acl.acls/acl_3.pol'
+                        .format(self.tmpdir)), "Output not a file")
+        # check outputs
+        self.verify_output('acl.acls/acl_2.pol',
+                           ['entry 10 {\n', '  if {\n', '  } then {\n',
+                            '    deny;\n', '  }\n', '}\n'] +
+                           self._acl_deny_any(), [])
+        self.verify_output('acl.acls/acl_3.pol',
+                           ['entry 10 {\n', '  if {\n',
+                            '    source-address 55.1.2.3/255.255.255.255;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n'] +
+                           self._acl_deny_any(), [])
+
+    def test_case_081(self):
+        self.create_input('acl.cfg', ['router\n', 'enable\n', 'configure\n',
+                                      'access-list 1 permit host 192.0.2.1\n',
+                                      'access-list 1 deny 192.0.2.2 0.0.0.0\n',
+                                      'access-list 1 permit 192.0.2.0 '
+                                      '0.0.0.130\n', 'exit\n', 'exit\n',
+                                      'exit'])
+        self.script_env.run(self.script, 'acl.cfg', '--quiet')
+        self.verify_output('acl.acls/acl_1.pol',
+                           ['entry 10 {\n', '  if {\n',
+                            '    source-address 192.0.2.1/255.255.255.255;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n',
+                            'entry 20 {\n', '  if {\n',
+                            '    source-address 192.0.2.2/255.255.255.255;\n',
+                            '  } then {\n', '    deny;\n', '  }\n', '}\n',
+                            'entry 30 {\n', '  if {\n',
+                            '    source-address 192.0.2.0/255.255.255.125;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n'] +
+                           self._acl_deny_any(40), [])
+
+    def test_case_082(self):  # test for protocol based acls
+        self.create_input('acl.cfg',
+                          ['router\n', 'enable\n', 'configure\n',
+                           'access-list 123 deny udp 10.0.0.1 0.0.0.0 eq 80 '
+                           '10.0.1.0 0.0.0.255\n',
+                           'access-list 123 deny tcp 10.0.0.1 0.0.0.0 eq 8088 '
+                           '10.0.1.0 0.0.0.255 eq 8088\n',
+                           'exit\n', 'exit\n', 'exit'])
+        self.script_env.run(self.script, 'acl.cfg', '--quiet')
+        self.verify_output('acl.acls/acl_123.pol',
+                           ['entry 10 {\n', '  if {\n',
+                            '    protocol udp;\n',
+                            '    source-address 10.0.0.1/255.255.255.255;\n',
+                            '    source-port 80;\n',
+                            '    destination-address 10.0.1.0/255.255.255.0;'
+                            '\n', '  } then {\n', '    deny;\n', '  }\n',
+                            '}\n',
+                            'entry 20 {\n', '  if {\n',
+                            '    protocol tcp;\n',
+                            '    source-address 10.0.0.1/255.255.255.255;\n',
+                            '    source-port 8088;\n',
+                            '    destination-address 10.0.1.0/255.255.255.0;'
+                            '\n', '    destination-port 8088;\n',
+                            '  } then {\n', '    deny;\n', '  }\n',
+                            '}\n'] + self._acl_deny_any(30), [])
+
+    def test_case_083(self):  # test for information if no router command
+        self.create_input('acl_no_router.cfg',
+                          ['access-list 1 permit host 55.1.2.3\n'])
+        ret = self.script_env.run(self.script, 'acl_no_router.cfg',
+                                  '--verbose', expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr',
+                           ['INFO: "access-list" command outside router '
+                            'configuration mode "access-list 1 permit '
+                            'host 55.1.2.3"\n'], ['NOTICE: '] +
+                           self.ignore_port_mapping + self.ignore_lag_info +
+                           self.ignore_info_vlan_1 + self.ignore_stpd_info)
+        self.verify_output('acl_no_router.acls/acl_1.pol',
+                           ['entry 10 {\n', '  if {\n',
+                            '    source-address 55.1.2.3/255.255.255.255;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n'] +
+                           self._acl_deny_any(), [])
+
+    def test_case_097(self):  # test for no warning if no router command
+        self.create_input('acl_no_router.cfg',
+                          ['access-list 1 permit host 55.1.2.3\n'])
+        ret = self.script_env.run(self.script, 'acl_no_router.cfg',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr', [], ['NOTICE: '])
+        self.verify_output('acl_no_router.acls/acl_1.pol',
+                           ['entry 10 {\n', '  if {\n',
+                            '    source-address 55.1.2.3/255.255.255.255;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n'] +
+                           self._acl_deny_any(), [])
+
+    def test_case_084(self):  # test binding ACL to a port
+        self.create_input('acl.cfg', ['router\n', 'enable\n', 'configure\n',
+                                      'access-list 1 permit host 192.0.2.1\n',
+                                      'access-list 1 deny 192.0.2.2 0.0.0.0\n',
+                                      'access-list 1 permit 192.0.2.0 '
+                                      '0.0.0.130\n', 'access-list interface 1'
+                                      ' ge.1.1\n', 'exit\n', 'exit\n', 'exit'])
+        self.script_env.run(self.script, 'acl.cfg', '--quiet')
+        self.verify_output('acl.acls/acl_1.pol',
+                           ['entry 10 {\n', '  if {\n',
+                            '    source-address 192.0.2.1/255.255.255.255;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n',
+                            'entry 20 {\n', '  if {\n',
+                            '    source-address 192.0.2.2/255.255.255.255;\n',
+                            '  } then {\n', '    deny;\n', '  }\n', '}\n',
+                            'entry 30 {\n', '  if {\n',
+                            '    source-address 192.0.2.0/255.255.255.125;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n'] +
+                           self._acl_deny_any(40), [])
+        self.verify_output('acl.xsf',
+                           ['configure access-list acl_1 ports 1 ingress\n'],
+                           self.default_ignores)
+
+    def test_case_072(self):  # test binding 2 ACLs to a port
+        self.create_input('acl.cfg', ['router\n', 'enable\n', 'configure\n',
+                                      'access-list 1 permit host 192.0.2.1\n',
+                                      'access-list 2 deny 192.0.2.2 0.0.0.0\n',
+                                      'access-list 1 permit 192.0.2.0 '
+                                      '0.0.0.130\n', 'access-list interface 1'
+                                      ' ge.1.1\n', 'access-list interface 2'
+                                      ' ge.1.1\n', 'exit\n', 'exit\n', 'exit'])
+        ret = self.script_env.run(self.script, 'acl.cfg', '--quiet',
+                                  expect_stderr=True, expect_error=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr',
+                           ['ERROR: EXOS allows only one ACL per port\n'],
+                           [])
+        self.verify_output('acl.acls/acl_1.pol',
+                           ['entry 10 {\n', '  if {\n',
+                            '    source-address 192.0.2.1/255.255.255.255;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n',
+                            'entry 20 {\n', '  if {\n',
+                            '    source-address 192.0.2.0/255.255.255.125;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n'] +
+                           self._acl_deny_any(30), [])
+        self.verify_output('acl.acls/acl_2.pol',
+                           ['entry 10 {\n', '  if {\n',
+                            '    source-address 192.0.2.2/255.255.255.255;\n',
+                            '  } then {\n', '    deny;\n', '  }\n', '}\n'] +
+                           self._acl_deny_any(20), [])
+        self.verify_output('acl.xsf',
+                           [],
+                           self.default_ignores)
+
+    def test_case_085(self):  # test binding ACL to an SVI
+        self.create_input('acl.cfg', ['router\n', 'enable\n', 'configure\n',
+                                      'access-list 1 permit host 192.0.2.1\n',
+                                      'access-list 1 deny 192.0.2.2 0.0.0.0\n',
+                                      'access-list 1 permit 192.0.2.0 '
+                                      '0.0.0.130\n', 'interface vlan 1\n',
+                                      'ip access-group 1 in\n', 'exit\n'
+                                      'exit\n', 'exit\n', 'exit'])
+        self.script_env.run(self.script, 'acl.cfg', '--quiet')
+        self.verify_output('acl.acls/acl_1.pol',
+                           ['entry 10 {\n', '  if {\n',
+                            '    source-address 192.0.2.1/255.255.255.255;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n',
+                            'entry 20 {\n', '  if {\n',
+                            '    source-address 192.0.2.2/255.255.255.255;\n',
+                            '  } then {\n', '    deny;\n', '  }\n', '}\n',
+                            'entry 30 {\n', '  if {\n',
+                            '    source-address 192.0.2.0/255.255.255.125;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n'] +
+                           self._acl_deny_any(40), [])
+        self.verify_output('acl.xsf',
+                           ['configure access-list acl_1 vlan Default '
+                            'ingress\n'],
+                           self.default_ignores)
+
+    def test_case_074(self):  # test binding ACL to an SVI
+        self.create_input('acl.cfg', ['router\n', 'enable\n', 'configure\n',
+                                      'access-list 1 permit host 192.0.2.1\n',
+                                      'access-list 1 deny 192.0.2.2 0.0.0.0\n',
+                                      'access-list 1 permit 192.0.2.0 '
+                                      '0.0.0.130\n', 'interface vlan 1\n',
+                                      'ip access-group 1\n', 'exit\n'
+                                      'exit\n', 'exit\n', 'exit'])
+        self.script_env.run(self.script, 'acl.cfg', '--quiet')
+        self.verify_output('acl.acls/acl_1.pol',
+                           ['entry 10 {\n', '  if {\n',
+                            '    source-address 192.0.2.1/255.255.255.255;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n',
+                            'entry 20 {\n', '  if {\n',
+                            '    source-address 192.0.2.2/255.255.255.255;\n',
+                            '  } then {\n', '    deny;\n', '  }\n', '}\n',
+                            'entry 30 {\n', '  if {\n',
+                            '    source-address 192.0.2.0/255.255.255.125;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n'] +
+                           self._acl_deny_any(40), [])
+        self.verify_output('acl.xsf',
+                           ['configure access-list acl_1 vlan Default '
+                            'ingress\n'],
+                           self.default_ignores)
+
+    def test_case_073(self):  # test binding 2 ACLs to an SVI
+        self.create_input('acl.cfg', ['router\n', 'enable\n', 'configure\n',
+                                      'access-list 1 permit host 192.0.2.1\n',
+                                      'access-list 2 deny 192.0.2.2 0.0.0.0\n',
+                                      'access-list 1 permit 192.0.2.0 '
+                                      '0.0.0.130\n',
+                                      'interface vlan 1\n'
+                                      'ip access-group 1\n',
+                                      'ip access-group 2 in\n',
+                                      'exit\n', 'exit\n', 'exit\n', 'exit'])
+        ret = self.script_env.run(self.script, 'acl.cfg', '--quiet',
+                                  expect_stderr=True, expect_error=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr',
+                           ['ERROR: Only one ACL per VLAN possible with EXOS'
+                            '\n'],
+                           [])
+        self.verify_output('acl.acls/acl_1.pol',
+                           ['entry 10 {\n', '  if {\n',
+                            '    source-address 192.0.2.1/255.255.255.255;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n',
+                            'entry 20 {\n', '  if {\n',
+                            '    source-address 192.0.2.0/255.255.255.125;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n'] +
+                           self._acl_deny_any(30), [])
+        self.verify_output('acl.acls/acl_2.pol',
+                           ['entry 10 {\n', '  if {\n',
+                            '    source-address 192.0.2.2/255.255.255.255;\n',
+                            '  } then {\n', '    deny;\n', '  }\n', '}\n'] +
+                           self._acl_deny_any(20), [])
+        self.verify_output('acl.xsf',
+                           [],
+                           self.default_ignores)
+
+    def test_case_086(self):  # test for upper case ICMP protocol in ACL/ACE
+        self.create_input('acl.cfg',
+                          ['router\n', 'enable\n', 'configure\n',
+                           'access-list 145 deny ICMP any any\n',
+                           'exit\n', 'exit\n', 'exit'])
+        self.script_env.run(self.script, 'acl.cfg', '--quiet')
+        self.verify_output('acl.acls/acl_145.pol',
+                           ['entry 10 {\n', '  if {\n',
+                            '    protocol icmp;\n',
+                            '  } then {\n', '    deny;\n', '  }\n',
+                            '}\n'] + self._acl_deny_any(), [])
+
+    def test_case_087(self):  # test for ip access-group
+        self.runner(['router\n', 'enable\n', 'configure\n',
+                     'access-list 1 permit host 192.0.2.1\n',
+                     'access-list 1 deny 192.0.2.2 0.0.0.0\n',
+                     'access-list 1 permit 192.0.2.0 0.0.0.130\n', '!\n',
+                     'interface vlan 1\n', 'ip access-group 1 in\n', 'exit\n',
+                     '!\n', 'exit\n', 'exit\n', 'exit\n'], [],
+                    ['configure access-list acl_1 vlan Default ingress\n'],
+                    self.default_ignores)
+        self.verify_output('testoutput.acls/acl_1.pol',
+                           ['entry 10 {\n', '  if {\n',
+                            '    source-address 192.0.2.1/255.255.255.255;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n',
+                            'entry 20 {\n', '  if {\n',
+                            '    source-address 192.0.2.2/255.255.255.255;\n',
+                            '  } then {\n', '    deny;\n', '  }\n', '}\n',
+                            'entry 30 {\n', '  if {\n',
+                            '    source-address 192.0.2.0/255.255.255.125;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n'] +
+                           self._acl_deny_any(40), [])
+
+    def test_case_088(self):  # test for IGMP protocol in ACE
+        self.runner(['router\n', 'enable\n', 'configure\n',
+                     'access-list 196 permit igmp any 4.1.0.1 0.0.255.255\n',
+                     'access-list 196 permit igmp 6.1.0.1 0.0.255.255 any\n',
+                     'access-list 196 permit igmp any 4.1.0.5 0.0.255.255\n',
+                     'access-list 196 permit igmp 6.1.0.5 0.0.255.255 any\n',
+                     '!\n',
+                     'interface vlan 1\n', 'ip access-group 196 in\n',
+                     'exit\n', '!\n', 'exit\n', 'exit\n', 'exit\n'], [],
+                    ['configure access-list acl_196 vlan Default ingress\n'],
+                    self.default_ignores)
+        self.verify_output('testoutput.acls/acl_196.pol',
+                           ['entry 10 {\n', '  if {\n',
+                            '    protocol igmp;\n',
+                            '    destination-address 4.1.0.1/255.255.0.0;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n',
+                            'entry 20 {\n', '  if {\n',
+                            '    protocol igmp;\n',
+                            '    source-address 6.1.0.1/255.255.0.0;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n',
+                            'entry 30 {\n', '  if {\n',
+                            '    protocol igmp;\n',
+                            '    destination-address 4.1.0.5/255.255.0.0;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n',
+                            'entry 40 {\n', '  if {\n',
+                            '    protocol igmp;\n',
+                            '    source-address 6.1.0.5/255.255.0.0;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n',
+                            ] + self._acl_deny_any(50), [])
+
+    def test_case_089(self):  # test print port mapping
+        self.create_input('empty.cfg', [])
+        ret = self.script_env.run(self.script, 'empty.cfg', '--verbose',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr',
+                           ['INFO: Mapping port "ge.1.1" to port "1"\n',
+                            'INFO: Mapping port "ge.1.2" to port "2"\n',
+                            'INFO: Mapping port "ge.1.3" to port "3"\n',
+                            'INFO: Mapping port "ge.1.4" to port "4"\n',
+                            'INFO: Mapping port "ge.1.5" to port "5"\n',
+                            'INFO: Mapping port "ge.1.6" to port "6"\n',
+                            'INFO: Mapping port "ge.1.7" to port "7"\n',
+                            'INFO: Mapping port "ge.1.8" to port "8"\n',
+                            'INFO: Mapping port "ge.1.9" to port "9"\n',
+                            'INFO: Mapping port "ge.1.10" to port "10"\n',
+                            'INFO: Mapping port "ge.1.11" to port "11"\n',
+                            'INFO: Mapping port "ge.1.12" to port "12"\n',
+                            'INFO: Mapping port "ge.1.13" to port "13"\n',
+                            'INFO: Mapping port "ge.1.14" to port "14"\n',
+                            'INFO: Mapping port "ge.1.15" to port "15"\n',
+                            'INFO: Mapping port "ge.1.16" to port "16"\n',
+                            'INFO: Mapping port "ge.1.17" to port "17"\n',
+                            'INFO: Mapping port "ge.1.18" to port "18"\n',
+                            'INFO: Mapping port "ge.1.19" to port "19"\n',
+                            'INFO: Mapping port "ge.1.20" to port "20"\n',
+                            'INFO: Mapping port "ge.1.21" to port "21"\n',
+                            'INFO: Mapping port "ge.1.22" to port "22"\n',
+                            'INFO: Mapping port "ge.1.23" to port "23"\n',
+                            'INFO: Mapping port "ge.1.24" to port "24"\n',
+                            'INFO: Mapping port "ge.1.25" to port "25"\n',
+                            'INFO: Mapping port "ge.1.26" to port "26"\n',
+                            'INFO: Mapping port "ge.1.27" to port "27"\n',
+                            'INFO: Mapping port "ge.1.28" to port "28"\n',
+                            'INFO: Mapping port "ge.1.29" to port "29"\n',
+                            'INFO: Mapping port "ge.1.30" to port "30"\n',
+                            'INFO: Mapping port "ge.1.31" to port "31"\n',
+                            'INFO: Mapping port "ge.1.32" to port "32"\n',
+                            'INFO: Mapping port "ge.1.33" to port "33"\n',
+                            'INFO: Mapping port "ge.1.34" to port "34"\n',
+                            'INFO: Mapping port "ge.1.35" to port "35"\n',
+                            'INFO: Mapping port "ge.1.36" to port "36"\n',
+                            'INFO: Mapping port "ge.1.37" to port "37"\n',
+                            'INFO: Mapping port "ge.1.38" to port "38"\n',
+                            'INFO: Mapping port "ge.1.39" to port "39"\n',
+                            'INFO: Mapping port "ge.1.40" to port "40"\n',
+                            'INFO: Mapping port "ge.1.41" to port "41"\n',
+                            'INFO: Mapping port "ge.1.42" to port "42"\n',
+                            'INFO: Mapping port "ge.1.43" to port "43"\n',
+                            'INFO: Mapping port "ge.1.44" to port "44"\n',
+                            'INFO: Mapping port "ge.1.45" to port "45"\n',
+                            'INFO: Mapping port "ge.1.46" to port "46"\n',
+                            'INFO: Mapping port "ge.1.47" to port "47"\n',
+                            'INFO: Mapping port "ge.1.48" to port "48"\n',
+                            'NOTICE: Mapping port "tg.1.49" to port "53"\n',
+                            'NOTICE: Mapping port "tg.1.50" to port "54"\n',
+                            'NOTICE: Port "49" of target switch is not used\n',
+                            'NOTICE: Port "50" of target switch is not used\n',
+                            'NOTICE: Port "51" of target switch is not used\n',
+                            'NOTICE: Port "52" of target switch is not used\n',
+                            ],
+                           self.ignore_outfile + self.ignore_lag_info +
+                           self.ignore_info_vlan_1 + self.ignore_stpd_info)
+
+    def test_case_090(self):  # test print stack notice
+        self.create_input('empty.cfg', [])
+        ret = self.script_env.run(self.script, 'empty.cfg',
+                                  '--target=SummitX460-48t+2sf,',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr', [
+            'NOTICE: Mapping port "tg.1.49" to port "1:53"\n',
+            'NOTICE: Mapping port "tg.1.50" to port "1:54"\n',
+            'NOTICE: Port "1:49" of target switch is not used\n',
+            'NOTICE: Port "1:50" of target switch is not used\n',
+            'NOTICE: Port "1:51" of target switch is not used\n',
+            'NOTICE: Port "1:52" of target switch is not used\n',
+            'NOTICE: Creating configuration for switch / stack in stacking '
+            'mode\n',
+            'NOTICE: Stacking must be configured before applying this '
+            'configuration\n',
+            'NOTICE: See the ExtremeXOS Configuration Guide on how to '
+            'configure stacking\n',
+            ],
+            self.ignore_outfile + self.ignore_lag_info +
+            self.ignore_info_vlan_1 + self.ignore_stpd_info)
+
+    def test_case_091(self):  # test a stack config translation
+        self.create_input('stack.cfg', ['set port disable ge.*.44-48\n',
+                                        'set vlan create 42\n',
+                                        'set vlan name 42 MYVLAN\n',
+                                        'set port vlan ge.*.1-43 42 '
+                                        'modify-egress\n'])
+        ret = self.script_env.run(self.script, 'stack.cfg',
+                                  '--ignore-defaults',
+                                  '--source=C5G124-48,C5G124-48,C5G124-48',
+                                  '--target=SummitX460-48t,SummitX460-48t,'
+                                  'SummitX460-48t',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stack.xsf', [
+            'disable ports 1:44\n',
+            'disable ports 1:45\n',
+            'disable ports 1:46\n',
+            'disable ports 1:47\n',
+            'disable ports 1:48\n',
+            'disable ports 2:44\n',
+            'disable ports 2:45\n',
+            'disable ports 2:46\n',
+            'disable ports 2:47\n',
+            'disable ports 2:48\n',
+            'disable ports 3:44\n',
+            'disable ports 3:45\n',
+            'disable ports 3:46\n',
+            'disable ports 3:47\n',
+            'disable ports 3:48\n',
+            'configure vlan Default delete ports 1:1-43,2:1-43,3:1-43\n',
+            'create vlan MYVLAN tag 42\n',
+            'configure vlan MYVLAN add ports 1:1-43,2:1-43,3:1-43 untagged\n',
+            ], [])
+        self.verify_output('stderr', [
+            'NOTICE: Writing translated configuration to file "stack.xsf"\n',
+            'NOTICE: Port "1:49" of target switch is not used\n',
+            'NOTICE: Port "1:50" of target switch is not used\n',
+            'NOTICE: Port "1:51" of target switch is not used\n',
+            'NOTICE: Port "1:52" of target switch is not used\n',
+            'NOTICE: Port "2:49" of target switch is not used\n',
+            'NOTICE: Port "2:50" of target switch is not used\n',
+            'NOTICE: Port "2:51" of target switch is not used\n',
+            'NOTICE: Port "2:52" of target switch is not used\n',
+            'NOTICE: Port "3:49" of target switch is not used\n',
+            'NOTICE: Port "3:50" of target switch is not used\n',
+            'NOTICE: Port "3:51" of target switch is not used\n',
+            'NOTICE: Port "3:52" of target switch is not used\n',
+            'NOTICE: Creating configuration for switch / stack in stacking '
+            'mode\n',
+            'NOTICE: Stacking must be configured before applying this '
+            'configuration\n',
+            'NOTICE: See the ExtremeXOS Configuration Guide on how to '
+            'configure stacking\n',
+            ], [])
 
 
 if __name__ == '__main__':

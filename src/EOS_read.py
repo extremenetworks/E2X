@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -55,12 +55,12 @@ All of the above classes should be considered private, used via calling
 Switch.configure().
 """
 
-import cmd
-
 import STP
 import Switch
 import Utils
 import VLAN
+
+from ACL import ACL, ACE, Standard_ACE
 
 
 class EosSetSpantreeAutoedgeCommand(Switch.CmdInterpreter):
@@ -417,7 +417,7 @@ class EosClearVlanCommand(Switch.CmdInterpreter):
         self._switch = switch
 
     def default(self, line):
-        return 'WARN: Ignoring unknown command "clear vlan ' + line + '"'
+        return 'NOTICE: Ignoring unknown command "clear vlan ' + line + '"'
 
     def do_egress(self, arg):
         if not arg:
@@ -458,7 +458,7 @@ class EosSetVlanCommand(Switch.CmdInterpreter):
         self._switch = switch
 
     def default(self, line):
-        return 'WARN: Ignoring unknown command "set vlan ' + line + '"'
+        return 'NOTICE: Ignoring unknown command "set vlan ' + line + '"'
 
     def do_create(self, arg):
         # verify that tags are valid
@@ -544,7 +544,7 @@ class EosClearPortCommand(Switch.CmdInterpreter):
         self._clear_port_lacp = EosClearPortLacpCommand(switch)
 
     def default(self, line):
-        return 'WARN: Ignoring unknown command "clear port ' + line + '"'
+        return 'NOTICE: Ignoring unknown command "clear port ' + line + '"'
 
     def do_lacp(self, arg):
         return self._clear_port_lacp.onecmd(arg)
@@ -559,7 +559,8 @@ class EosClearPortLacpCommand(Switch.CmdInterpreter):
         self._switch = switch
 
     def default(self, line):
-        return 'WARN: Ignoring unknown command "clear port lacp ' + line + '"'
+        return ('NOTICE: Ignoring unknown command "clear port lacp ' +
+                line + '"')
 
     def do_port(self, arg):
         arglst = arg.split()
@@ -601,7 +602,7 @@ class EosSetPortLacpCommand(Switch.CmdInterpreter):
         self._switch = switch
 
     def default(self, line):
-        return 'WARN: Ignoring unknown command "set port lacp ' + line + '"'
+        return 'NOTICE: Ignoring unknown command "set port lacp ' + line + '"'
 
     def do_port(self, arg):
         arglst = arg.split()
@@ -663,7 +664,7 @@ class EosSetPortJumboCommand(Switch.CmdInterpreter):
         self._switch = switch
 
     def default(self, line):
-        return 'WARN: Ignoring unknown command "set port jumbo ' + line + '"'
+        return 'NOTICE: Ignoring unknown command "set port jumbo ' + line + '"'
 
     def do_enable(self, arg):
         ret = ''
@@ -701,7 +702,7 @@ class EosSetPortCommand(Switch.CmdInterpreter):
         self._set_port_lacp = EosSetPortLacpCommand(switch)
 
     def default(self, line):
-        return 'WARN: Ignoring unknown command "set port ' + line + '"'
+        return 'NOTICE: Ignoring unknown command "set port ' + line + '"'
 
     def do_alias(self, arg):
         ret = ''
@@ -961,6 +962,67 @@ class EosSetLacpCommand(Switch.CmdInterpreter):
         return self._set_lacp_singleportlag.onecmd(arg)
 
 
+class EosIpCommand(Switch.CmdInterpreter):
+
+    """Commands (in router interface config mode) starting with 'ip'."""
+
+    def __init__(self, state, switch):
+        super().__init__()
+        self._state = state
+        self._switch = switch
+
+    def default(self, line):
+        # catch hyphenated commands
+        if line.startswith('access-group'):
+            return self._do_access_group(line.split()[1:])
+        return 'NOTICE: Ignoring unknown command "ip ' + line + '"'
+
+    def set_state(self, state):
+        self._state = state
+        return self._state
+
+    def _do_access_group(self, token_lst):
+        warn = ''
+        if not token_lst:
+            return 'ERROR: "ip access-group" needs an argument'
+        if not self._state:
+            return 'ERROR: "ip access-group" outside router interface'
+        interface = self._state[-1]
+        if (not isinstance(interface, str) or
+                not interface.startswith('interface vlan ')):
+            return ('ERROR: "ip access-group" inside unknown interface "' +
+                    str(interface) + '"')
+        vid = interface[len('interface vlan '):]
+        try:
+            vid = int(vid)
+        except:
+            return 'ERROR: VLAN ID must be an integer (' + interface + ')'
+        if not (0 < vid < 4096):
+            return ('ERROR: Illegal VLAN ID "' + str(vid) + '" (' + interface +
+                    ')')
+        vlan = self._switch.get_vlan(tag=vid)
+        if 'sequence' in token_lst:
+            warn = ('WARN: Ignoring "' + ' '.join(token_lst[-2:]) + '" in "' +
+                    'ip access-group ' + ' '.join(token_lst) + '"')
+        if not vlan:
+            return ('ERROR: VLAN "' + str(vid) + '" does not exist (' +
+                    ' '.join(token_lst) + ')')
+        acl_id = token_lst[0]
+        try:
+            acl_nr = int(acl_id)
+            acl_id = acl_nr
+        except:
+            return ('NOTICE: Ignoring unknown command "ip access group ' +
+                    ' '.join(token_lst) + '"')
+        if len(token_lst) > 1:
+            direction = token_lst[1]
+            if direction not in ['in', 'sequence']:
+                return ('ERROR: Unsupported ACL direction "' + str(direction) +
+                        '"')
+        vlan.add_ipv4_acl_in(acl_id)
+        return warn
+
+
 class EosClearCommand(Switch.CmdInterpreter):
 
     """Commands starting with 'clear'."""
@@ -1016,11 +1078,333 @@ class EosCommand(Switch.CmdInterpreter):
         self._comments = ['#', '!']
         self._set = EosSetCommand(switch)
         self._clear = EosClearCommand(switch)
+        self._ip = EosIpCommand(self._state, switch)
+        self._switch = switch
+
+    def default(self, line):
+        # Hyphenated commands need to be caught here.
+        if line.startswith('access-list'):
+            result = self._do_access_list(line.split()[1:])
+            if result:
+                result += ' "' + line + '"'
+            return result
+        # Comments.
+        if self._is_comment(line):
+            return 'INFO: Ignoring comment "' + line + '"'
+        # Unknown lines.
+        return 'NOTICE: Ignoring unknown command "' + line + '"'
 
     def do_set(self, arg):
         return self._set.onecmd(arg)
 
     def do_clear(self, arg):
         return self._clear.onecmd(arg)
+
+    def do_router(self, arg):
+        if arg:
+            return 'NOTICE: Ignoring unknown command "router ' + arg + '"'
+        if self._state:
+            return 'INFO: "router" command inside router mode'
+        self._state.append('router')
+        return ''
+
+    def do_exit(self, arg):
+        if arg:
+            return 'ERROR: exit takes no arguments ("exit ' + arg + '")'
+        if not self._state:
+            return 'INFO: "exit" command outside of router mode'
+        self._state.pop()
+        return ''
+
+    def do_enable(self, arg):
+        if arg:
+            return 'NOTICE: Ignoring unknown command "enable ' + arg + '"'
+        if not self._state or 'router' not in self._state:
+            return 'INFO: "enable" command outside of router mode'
+        self._state.append('enable')
+        return ''
+
+    def do_configure(self, arg):
+        # unknown commands if arguments different from terminal given
+        if arg and arg != 'terminal':
+            return 'NOTICE: Ignoring unknown command "configure ' + arg + '"'
+        if not self._state or 'enable' not in self._state:
+            return 'INFO: "configure" command outside of router enable mode'
+        self._state.append('configure')
+        return ''
+
+    def _do_access_list(self, token_list):
+        if not token_list:
+            return 'ERROR: "access-list" command without arguments'
+        acl_type = token_list[0]
+        """Numbered ACLs only, or "access-list interface" command."""
+        if acl_type == 'interface':
+            throw_away = token_list.pop(0)
+            return self._do_access_list_interface(token_list)
+        if not ACL.is_supported_type(acl_type):
+            return 'NOTICE: Ignoring unknown command'
+
+        warn = ''
+        if not self._state or 'configure' not in self._state:
+            warn = ('INFO: "access-list" command outside router configuration'
+                    ' mode')
+        try:
+            new_acl = EosNumberedAclLineParser.create_acl(token_list)
+        except EosAclParseError as parse_err:
+            return str(parse_err)
+        surplus_params = new_acl.get_surplus_params()
+        if surplus_params:
+            warn += 'WARN: Ignoring "' + surplus_params + '" in'
+        number = new_acl.get_number()
+
+        acl = self._switch.get_acl_by_number(number)
+        if acl is None:
+            err = self._switch.add_complete_acl(new_acl)
+            acl = self._switch.get_acl_by_number(number)
+            if not acl:
+                return ('ERROR: Could not create ACL "' + str(number) + '"' +
+                        ' (reason: "' + err + '")')
+        else:
+            acl.add_ace(new_acl.get_entries()[0])
+        self._leave_interface_mode()
+        return warn
+
+    def _do_access_list_interface(self, token_list):
+        warn = ''
+        if not token_list:
+            return 'ERROR: "access-list interface" needs arguments'
+        if not self._state or 'configure' not in self._state:
+            warn = ('INFO: "access-list interface" outside router '
+                    'configuration mode')
+        token_count = len(token_list)
+        if not (1 < token_count <= 5):
+            return ('ERROR: Illegal "access-list interface" command (' +
+                    'access-list interface ' + ' '.join(token_list) + ')')
+        acl_id = port_string = direction = sequence = sequence_nr = None
+        acl_id, port_string = token_list[0], token_list[1]
+        if token_count == 3:
+            direction = token_list[2]
+        elif token_count == 4:
+            sequence, sequence_nr = token_list[2], token_list[3]
+        elif token_count == 5:
+            direction = token_list[2]
+            sequence, sequence_nr = token_list[3], token_list[4]
+        if direction and direction != 'in':
+            return ('ERROR: ACL must be applied inbound, not "' +
+                    str(direction) + '"')
+        if sequence and sequence != 'sequence':
+            return ('ERROR: Expected keyword "sequence", but got "' +
+                    str(sequence) + '"')
+        if sequence_nr:
+            try:
+                sequence_nr = int(sequence_nr)
+            except:
+                return ('ERROR: Sequence number must be an integer '
+                        '(access-list interface)')
+            warn += '\nWARN: Ignoring ACL sequence number' \
+                    ' (access-list interface)'
+        try:
+            acl_nr = int(acl_id)
+            acl_id = acl_nr
+        except:
+            pass
+        port_list = self._switch.get_ports_by_name(port_string)
+        if not port_list:
+            return ('ERROR: Port ' + port_string + ' not found '
+                    '(access-list interface ' + str(acl_id) +
+                    str(port_string) + ')')
+        for p in port_list:
+            p.add_ipv4_acl_in(acl_id, 'config')
+        self._leave_interface_mode()
+        return warn
+
+    def _split_svi_name(self, name):
+        prefix, number = name[:4].lower(), name[4:]
+        if prefix != 'vlan' or not number:
+            return None
+        try:
+            number = int(number)
+        except:
+            return None
+        if 0 < number < 4095:
+            return [prefix, str(number)]
+        return None
+
+    def _leave_interface_mode(self):
+        """Leave interface configuration mode."""
+        if not self._state:
+            return
+        current_interface = self._state[-1]
+        if (isinstance(current_interface, str) and
+                current_interface.startswith('interface vlan ')):
+            self._state.pop()
+
+    def do_interface(self, arg):
+        """Save interface on state stack, create VLAN if non-existent."""
+        warn = ''
+        if not arg:
+            return ('ERROR: "interface" command needs an argument')
+        if not isinstance(arg, str):
+            return ('ERROR: "interface" command needs string as argument')
+        if not arg.startswith('vlan'):
+            return 'NOTICE: Ignoring unknown command "interface ' + arg + '"'
+        arg_lst = arg.split()
+        if len(arg_lst) == 1:
+            arg_lst = self._split_svi_name(arg)
+        if not arg_lst:
+            return ('ERROR: Unknown interface "' + arg + '"')
+        vid = arg_lst[1]
+        try:
+            vid = int(vid)
+        except:
+            return 'ERROR: VLAN ID must be an integer'
+        if not (0 < vid < 4095):
+            return ('ERROR: VLAN ID must be in [1,4095] (interface ' +
+                    arg + ')')
+        if not self._state or 'configure' not in self._state:
+            warn = 'INFO: "interface" command outside router config mode'
+        self._leave_interface_mode()
+        self._state.append('interface ' + ' '.join(arg_lst))
+        vlan = self._switch.get_vlan(tag=vid)
+        # create VLAN if it does not exist yet
+        if not vlan:
+            vlan = VLAN.VLAN(tag=vid)
+            self._switch.add_vlan(vlan)
+        return warn
+
+    def do_ip(self, arg):
+        result = self._ip.onecmd(arg)
+        return result
+
+
+class EosNumberedAclLineParser:
+
+    @staticmethod
+    def create_acl(token_list):
+        _std_acl_range = range(1, 100)
+        _ext_acl_range = range(100, 400)
+        acl_type = token_list.pop(0)
+        try:
+            acl_number = int(acl_type)
+        except:
+            raise(EosAclParseError('ERROR: Only numbered ACLs supported'))
+        if acl_number not in _std_acl_range \
+                and acl_number not in _ext_acl_range:
+            raise(EosAclParseError('ERROR: ACL numbers in ' +
+                                   str(_std_acl_range) + ' and ' +
+                                   str(_ext_acl_range) + ' supported'))
+        acl = ACL(number=acl_number)
+        if not token_list:
+            raise(EosAclParseError('ERROR: Empty ACE configuration line'))
+        try:
+            if acl_number in _std_acl_range:
+                ace = EosNumberedAclLineParser._create_std_ace(token_list)
+            else:
+                ace = EosNumberedAclLineParser._create_ext_ace(token_list)
+        except:
+            raise
+        if token_list:
+            acl.set_surplus_params(' '.join(token_list))
+        acl.add_ace(ace)
+        return acl
+
+    @staticmethod
+    def _create_std_ace(token_list):
+        action = token_list.pop(0)
+        if action not in ACE._ALLOWED_ACTIONS:
+            raise(EosAclParseError('ERROR: Invalid ACE action'))
+        try:
+            source = \
+                EosNumberedAclLineParser._handle_address_definition(token_list)
+        except:
+            raise
+        ace = Standard_ACE(action=action)
+        ace.set_source(source['addr'])
+        ace.set_source_mask(source['mask'])
+        return ace
+
+    @staticmethod
+    def _create_ext_ace(token_list):
+        if len(token_list) < 4:
+            raise(EosAclParseError('ERROR: Extended ACEs need protocol, source'
+                                   ' and destination'))
+        action = token_list.pop(0)
+        if action not in ACE._ALLOWED_ACTIONS:
+            raise(EosAclParseError('ERROR: Invalid ACE action'))
+        ace = ACE(action=action)
+        protocol = token_list[0]
+        if ACE.validate_protocol_desc(protocol) == -1:
+            raise(EosAclParseError('ERROR: Unsupported ACE protocol'))
+        ace.set_protocol(token_list.pop(0))
+        try:
+            source = \
+                EosNumberedAclLineParser._handle_address_definition(token_list)
+        except EosAclParseError as errMsg:
+            raise EosAclParseError('src: ' + str(errMsg))
+        ace.set_source(source['addr'])
+        ace.set_source_mask(source['mask'])
+        if 'op' in source:
+            ace.set_source_op(source['op'])
+            ace.set_source_port(source['port'])
+        try:
+            dest = \
+                EosNumberedAclLineParser._handle_address_definition(token_list)
+        except EosAclParseError as errMsg:
+            raise EosAclParseError('dest: ' + str(errMsg))
+        ace.set_dest(dest['addr'])
+        ace.set_dest_mask(dest['mask'])
+        if 'op' in dest:
+            ace.set_dest_op(dest['op'])
+            ace.set_dest_port(dest['port'])
+        return ace
+
+    @staticmethod
+    def _handle_address_definition(token_list):
+        address_definition = {}
+        if not token_list:
+            raise(EosAclParseError('ERROR: Address definition missing in ACE '
+                                   'config'))
+        address = token_list.pop(0)
+        if ACE.is_valid_ip_address(address):
+            address_definition['addr'] = address
+            mask = '0.0.0.0'
+            if token_list:
+                mask = token_list[0]
+                if ACE.is_valid_ip_address(mask):
+                    token_list.pop(0)
+            address_definition['mask'] = mask
+        elif address == 'host':
+            address = None
+            if token_list:
+                address = token_list[0]
+            if not address or not ACE.is_valid_ip_address(address):
+                raise(EosAclParseError('ERROR: Missing address parameter in '
+                                       'ACE config'))
+            token_list.pop(0)
+            address_definition['addr'] = address
+            address_definition['mask'] = '0.0.0.0'
+        elif address == 'any':
+            address_definition['addr'] = '0.0.0.0'
+            address_definition['mask'] = '255.255.255.255'
+        else:
+            raise(EosAclParseError('ERROR: Invalid address in ACE config'))
+        if token_list:
+            op = token_list[0]
+            if op in ACE._ALLOWED_OPS:
+                address_definition['op'] = token_list.pop(0)
+                if token_list:
+                    port = token_list[0]
+                    if not ACE._is_port_number(port):
+                        raise(EosAclParseError('ERROR: Invalid port definition'
+                                               ' in ACE config'))
+                    address_definition['port'] = token_list.pop(0)
+                else:
+                    raise(EosAclParseError('ERROR: Missing port definition'
+                                           ' in ACE config'))
+        return address_definition
+
+
+class EosAclParseError(Exception):
+    pass
 
 # vim:filetype=python:expandtab:shiftwidth=4:tabstop=4

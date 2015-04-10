@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -44,6 +44,8 @@ SummitX460_24t defines attributes specific to a Summit X460-24t switch.
 Variables:
 devices defines the switch models supported by this module.
 """
+
+import json
 
 import STP
 import Switch
@@ -72,9 +74,9 @@ class XosSwitch(Switch.Switch):
         self._writer = XOS_write.XosConfigWriter(self)
         self._sep = ':'
 
-    def _build_port_name(self, index, name_dict):
-        if self.is_stack_member():
-            name = str(self._slot) + self._sep + str(index)
+    def _build_port_name(self, index, name_dict, slot):
+        if self.is_stack():
+            name = str(slot) + self._sep + str(index)
         else:
             name = str(index)
         return name
@@ -119,127 +121,186 @@ class XosSwitch(Switch.Switch):
             return ''
 
 
-class SummitX460_48p(XosSwitch):
+# Dictionary of hardware descriptions
+hardware_descriptions = {
+    'SummitX460-48p': [
+        '{"ports": {"label": {"start": 1, "end": 48},'
+        '            "name": {"prefix": "", "start": 1, "end": 48},'
+        '            "data": {"type": "rj45",'
+        '                     "speedrange": [10, 100, 1000],'
+        '                     "PoE": "yes"}}}',
+        '{"ports": {"label": {"start": 49, "end": 52},'
+        '            "name": {"prefix": "", "start": 49, "end": 52},'
+        '            "data": {"type": "sfp",'
+        '                     "speedrange": [100, 1000],'
+        '                     "PoE": "no"}}}',
+    ],
+    'SummitX460-48t': [
+        '{"ports": {"label": {"start": 1, "end": 48},'
+        '            "name": {"prefix": "", "start": 1, "end": 48},'
+        '            "data": {"type": "rj45",'
+        '                     "speedrange": [10, 100, 1000],'
+        '                     "PoE": "no"}}}',
+        '{"ports": {"label": {"start": 49, "end": 52},'
+        '            "name": {"prefix": "", "start": 49, "end": 52},'
+        '            "data": {"type": "sfp",'
+        '                     "speedrange": [100, 1000],'
+        '                     "PoE": "no"}}}',
+    ],
+    'SummitX460-48x': [
+        '{"ports": {"label": {"start": 1, "end": 48},'
+        '            "name": {"prefix": "", "start": 1, "end": 48},'
+        '            "data": {"type": "sfp",'
+        '                     "speedrange": [100, 1000],'
+        '                     "PoE": "no"}}}',
+    ],
+    'SummitX460-24t': [
+        '{"ports": {"label": {"start": 1, "end": 20},'
+        '            "name": {"prefix": "", "start": 1, "end": 20},'
+        '            "data": {"type": "rj45",'
+        '                     "speedrange": [10, 100, 1000],'
+        '                     "PoE": "no"}}}',
+        '{"ports": {"label": {"start": 21, "end": 24},'
+        '            "name": {"prefix": "", "start": 21, "end": 24},'
+        '            "data": {"type": "combo",'
+        '                     "speedrange": [10, 100, 1000],'
+        '                     "PoE": "no"}}}',
+        '{"ports": {"label": {"start": 25, "end": 28},'
+        '            "name": {"prefix": "", "start": 25, "end": 28},'
+        '            "data": {"type": "sfp",'
+        '                     "speedrange": [100, 1000],'
+        '                     "PoE": "no"}}}',
+    ],
+    'SummitX460-24p': [
+        '{"ports": {"label": {"start": 1, "end": 20},'
+        '            "name": {"prefix": "", "start": 1, "end": 20},'
+        '            "data": {"type": "rj45",'
+        '                     "speedrange": [10, 100, 1000],'
+        '                     "PoE": "yes"}}}',
+        '{"ports": {"label": {"start": 21, "end": 24},'
+        '            "name": {"prefix": "", "start": 21, "end": 24},'
+        '            "data": {"type": "combo",'
+        '                     "speedrange": [10, 100, 1000],'
+        '                     "PoE": "yes"}}}',
+        '{"ports": {"label": {"start": 25, "end": 28},'
+        '            "name": {"prefix": "", "start": 25, "end": 28},'
+        '            "data": {"type": "sfp",'
+        '                     "speedrange": [100, 1000],'
+        '                     "PoE": "no"}}}',
+    ],
+    'SummitX460-24x': [
+        '{"ports": {"label": {"start": 1, "end": 20},'
+        '            "name": {"prefix": "", "start": 1, "end": 20},'
+        '            "data": {"type": "sfp",'
+        '                     "speedrange": [100, 1000],'
+        '                     "PoE": "no"}}}',
+        '{"ports": {"label": {"start": 21, "end": 24},'
+        '            "name": {"prefix": "", "start": 21, "end": 24},'
+        '            "data": {"type": "combo",'
+        '                     "speedrange": [10, 100, 1000],'
+        '                     "PoE": "no"}}}',
+        '{"ports": {"label": {"start": 25, "end": 28},'
+        '            "name": {"prefix": "", "start": 25, "end": 28},'
+        '            "data": {"type": "rj45",'
+        '                     "speedrange": [10, 100, 1000],'
+        '                     "PoE": "no"}}}',
+    ],
+    '2xf': [
+        '{"ports": {"label": {"start": 1, "end": 2},'
+        '            "name": {"prefix": "", "start": 1, "end": 2},'
+        '            "data": {"type": "sfp",'
+        '                     "speedrange": [10000],'
+        '                     "PoE": "no"}}}',
+    ],
+    '2sf': [
+        '{"ports": {"label": {"start": 1, "end": 2},'
+        '            "name": {"prefix": "", "start": 1, "end": 2},'
+        '            "data": {"type": "sfp",'
+        '                     "speedrange": [1000, 10000],'
+        '                     "PoE": "no"}}}',
+    ],
+    '4sf': [
+        '{"ports": {"label": {"start": 1, "end": 4},'
+        '            "name": {"prefix": "", "start": 1, "end": 4},'
+        '            "data": {"type": "sfp",'
+        '                     "speedrange": [1000, 10000],'
+        '                     "PoE": "no"}}}',
+    ],
+}
 
-    """Summit X460-48p switch definition."""
 
-    def __init__(self):
+class XosSwitchHardware(XosSwitch):
+
+    def __init__(self, model):
         super().__init__()
-        self._model = 'SummitX460-48p'
-        self._hw_desc = [
-            '{"ports": {"label": {"start": 1, "end": 48},'
-            '            "name": {"prefix": "", "start": 1, "end": 48},'
-            '            "data": {"type": "rj45",'
-            '                     "speedrange": [10, 100, 1000],'
-            '                     "PoE": "yes"}}}',
-            '{"ports": {"label": {"start": 49, "end": 52},'
-            '            "name": {"prefix": "", "start": 49, "end": 52},'
-            '            "data": {"type": "sfp",'
-            '                     "speedrange": [100, 1000],'
-            '                     "PoE": "no"}}}',
-        ]
-        self.setup_hw()
-
-
-class SummitX460_48p_2xf(SummitX460_48p):
-
-    """Summit X460-48p switch with XGM3S-2XF module definition."""
-
-    def __init__(self):
-        super().__init__()
-        self._model = 'SummitX460-48p+2xf'
-        self._hw_desc.append(
-            '{"ports": {"label": {"start": 53, "end": 54},'
-            '            "name": {"prefix": "", "start": 53, "end": 54},'
-            '            "data": {"type": "sfp",'
-            '                     "speedrange": [1000, 10000],'
-            '                     "PoE": "no"}}}',
-        )
-        self.setup_hw()
-
-
-class SummitX460_48p_2sf(SummitX460_48p_2xf):
-
-    """Summit X460-48p switch with XGM3S-2SF module definition."""
-
-    def __init__(self):
-        super().__init__()
-        self._model = 'SummitX460-48p+2sf'
-
-
-class SummitX460_48p_4sf(SummitX460_48p):
-
-    """Summit X460-48p switch with XGM3S-4SF module definition."""
-
-    def __init__(self):
-        super().__init__()
-        self._model = 'SummitX460-48p+4sf'
-        self._hw_desc.append(
-            '{"ports": {"label": {"start": 55, "end": 58},'
-            '            "name": {"prefix": "", "start": 55, "end": 58},'
-            '            "data": {"type": "sfp",'
-            '                     "speedrange": [1000, 10000],'
-            '                     "PoE": "no"}}}',
-        )
-        self.setup_hw()
-
-
-class SummitX460_48p_2sf_4sf(SummitX460_48p_2sf):
-
-    """Summit X460-48p switch with XGM3S-2SF and XGM3S-4SF definition."""
-
-    def __init__(self):
-        super().__init__()
-        self._model = 'SummitX460-48p+2sf+4sf'
-        self._hw_desc.append(
-            '{"ports": {"label": {"start": 55, "end": 58},'
-            '            "name": {"prefix": "", "start": 55, "end": 58},'
-            '            "data": {"type": "sfp",'
-            '                     "speedrange": [1000, 10000],'
-            '                     "PoE": "no"}}}',
-        )
-        self.setup_hw()
-
-
-class SummitX460_24t(XosSwitch):
-
-    """Summit X460-24t switch definition."""
-
-    def __init__(self):
-        super().__init__()
-        self._model = 'SummitX460-24t'
-        self._hw_desc = [
-            '{"ports": {"label": {"start": 1, "end": 20},'
-            '            "name": {"prefix": "", "start": 1, "end": 20},'
-            '            "data": {"type": "rj45",'
-            '                     "speedrange": [10, 100, 1000],'
-            '                     "PoE": "no"}}}',
-            '{"ports": {"label": {"start": 21, "end": 24},'
-            '            "name": {"prefix": "", "start": 21, "end": 24},'
-            '            "data": {"type": "combo",'
-            '                     "speedrange": [10, 100, 1000],'
-            '                     "PoE": "no"}}}',
-            '{"ports": {"label": {"start": 25, "end": 28},'
-            '            "name": {"prefix": "", "start": 25, "end": 28},'
-            '            "data": {"type": "sfp",'
-            '                     "speedrange": [100, 1000],'
-            '                     "PoE": "no"}}}',
-        ]
-        self.setup_hw()
+        self._model = model
+        self._hw_desc = []
+        if ',' in model:
+            self._stack = True
+        switches = self._model.split(',')
+        for s in switches:
+            if not s:
+                continue
+            sw_hw = []
+            last_port = 0
+            for part in s.split('+'):
+                hw_desc = hardware_descriptions[part]
+                if sw_hw:
+                    highest_ports = json.loads(sw_hw[-1])
+                    highest_port = max(
+                        [json.loads(port_desc)['ports']['name']['end']
+                         for port_desc in sw_hw])
+                    last_port = highest_ports['ports']['name']['end']
+                    last_port = highest_port
+                if part in ['2xf', '2sf', '4sf', ]:
+                    offset = 2 if (part == '4sf' and
+                                  (not '2xf' in s and not '2sf' in s)) else 0
+                    # module must have exactly one port list entry
+                    mod_ports = json.loads(hw_desc[0])
+                    mod_ports['ports']['name']['start'] += last_port + offset
+                    mod_ports['ports']['name']['end'] += last_port + offset
+                    hw_desc = [json.dumps(mod_ports)]
+                sw_hw += hw_desc
+            self._hw_desc.append(sw_hw)
+        self._setup_hw()
 
 devices = {
-    'SummitX460-48p': {'use_as': 'target', 'os': 'XOS',
-                       'class': SummitX460_48p},
-    'SummitX460-48p+2xf': {'use_as': 'target', 'os': 'XOS',
-                           'class': SummitX460_48p_2xf},
-    'SummitX460-48p+2sf': {'use_as': 'target', 'os': 'XOS',
-                           'class': SummitX460_48p_2sf},
-    'SummitX460-48p+4sf': {'use_as': 'target', 'os': 'XOS',
-                           'class': SummitX460_48p_4sf},
-    'SummitX460-48p+2sf+4sf': {'use_as': 'target', 'os': 'XOS',
-                               'class': SummitX460_48p_2sf_4sf},
-    'SummitX460-24t': {'use_as': 'target', 'os': 'XOS',
-                       'class': SummitX460_24t},
+    'SummitX460-48t': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-48t+2xf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-48t+2sf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-48t+4sf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-48t+2xf+4sf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-48t+2sf+4sf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-48p': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-48p+2xf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-48p+2sf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-48p+4sf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-48p+2xf+4sf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-48p+2sf+4sf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-24t': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-24t+2xf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-24t+2sf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-24t+4sf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-24t+2xf+4sf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-24t+2sf+4sf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-24p': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-24p+2xf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-24p+2sf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-24p+4sf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-24p+2xf+4sf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-24p+2sf+4sf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-24x': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-24x+2xf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-24x+2sf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-24x+4sf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-24x+2xf+4sf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-24x+2sf+4sf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-48x': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-48x+2xf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-48x+2sf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-48x+4sf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-48x+2xf+4sf': {'use_as': 'target', 'os': 'XOS'},
+    'SummitX460-48x+2sf+4sf': {'use_as': 'target', 'os': 'XOS'},
     }
 
 # vim:filetype=python:expandtab:shiftwidth=4:tabstop=4

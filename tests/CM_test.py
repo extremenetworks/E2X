@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -33,6 +33,8 @@ from unittest.mock import Mock
 
 import CM
 from Switch import Switch
+from EOS import EosSwitch
+from XOS import XosSwitch
 from Switch import CmdInterpreter
 from Port import Port
 from VLAN import VLAN
@@ -61,6 +63,7 @@ class CM_Test(unittest.TestCase):
         cls.mockSourceLag.get_name.return_value = cls.sourceLagName
         cls.mockSourceLag.is_configured.return_value = True
         cls.mockSourceLag.is_disabled_only.return_value = False
+        cls.mockSourceLag.accidental_config_only.return_value = False
 
         cls.mockTargetLag = Mock(name='TargetLag', spec=LAG)
         cls.mockTargetLag.get_name.return_value = cls.targetLagName
@@ -75,18 +78,18 @@ class CM_Test(unittest.TestCase):
         cls.mockSourceSwitch.get_ports.return_value = [cls.mockSourcePort]
         cls.mockSourceSwitch.get_all_vlans.return_value = [cls.mockSourceVlan]
 
-        cls.mockTargetSwitch = Mock(name='Target', spec=Switch)
+        cls.mockTargetSwitch = Mock(name='Target', spec=XosSwitch)
         cls.mockTargetSwitch.get_ports.return_value = [cls.mockTargetPort]
         cls.mockTargetSwitch.get_cmd.return_value = cls.mockCmd
         cls.mockTargetSwitch.get_vlan.return_value = cls.mockTargetVlan
         cls.mockTargetSwitch.get_lags_by_name.return_value = \
             [cls.mockTargetLag]
 
-        CM._devices = {'C5K125-48P2': {'use_as': 'source',
+        CM._devices = {'C5K125-48P2': {'use_as': 'source', 'os': 'EOS',
                                        'class': cls.mockSourceSwitch},
-                       'SummitX460-48p': {'use_as': 'target',
+                       'SummitX460-48p': {'use_as': 'target', 'os': 'XOS',
                                           'class': cls.mockTargetSwitch},
-                       'NoClass': {'use_as': 'target',
+                       'NoClass': {'use_as': 'target', 'os': None,
                                    'class': None}}
         cls.WarningStart = 'WARN: '
         cls.ErrorStart = 'ERROR: '
@@ -122,18 +125,20 @@ class CM_Test(unittest.TestCase):
     def test_set_source_switch_OK(self):
         sourceSwitch = 'C5K125-48P2'
 
-        result = self.cm.set_source_switch(sourceSwitch)
+        result, trace = self.cm.set_source_switch(sourceSwitch)
 
         self.assertTrue(result)
-        self.assertIsInstance(self.cm.source, Mock)
+        self.assertEqual(trace, '')
+        self.assertIsInstance(self.cm.source, EosSwitch)
 
     def test_set_source_switch_Fail(self):
         sourceSwitch = 'Foo'
         self.cm.source = None
 
-        result = self.cm.set_source_switch(sourceSwitch)
+        result, trace = self.cm.set_source_switch(sourceSwitch)
 
         self.assertFalse(result)
+        self.assertEqual(trace, 'ERROR: Unknown switch name "Foo"')
         self.assertIsNone(self.cm.source)
 
     def test_set_target_switch(self):
@@ -141,22 +146,24 @@ class CM_Test(unittest.TestCase):
 
         self.cm.set_target_switch(targetSwitch)
 
-        self.assertIsInstance(self.cm.target, Mock)
+        self.assertIsInstance(self.cm.target, XosSwitch)
 
     def test_set_target_switch_Fail_Wrong_Model(self):
         targetSwitch = 'Foo'
         self.cm.target = None
 
-        result = self.cm.set_target_switch(targetSwitch)
+        result, trace = self.cm.set_target_switch(targetSwitch)
+        self.assertEqual(trace, 'ERROR: Unknown switch name "Foo"')
 
         self.assertFalse(result)
         self.assertIsNone(self.cm.target)
 
-    def test_set_target_switch_Fail_No_Class(self):
+    def test_set_target_switch_Fail_OSinvalid(self):
         targetSwitch = 'NoClass'
         self.cm.target = None
 
-        result = self.cm.set_target_switch(targetSwitch)
+        result, trace = self.cm.set_target_switch(targetSwitch)
+        self.assertEqual(trace, 'ERROR: Cannot determine target stack OS')
 
         self.assertFalse(result)
         self.assertIsNone(self.cm.target)
@@ -166,10 +173,26 @@ class CM_Test(unittest.TestCase):
         self.cm.target = None
         self.cm.enable_debug()
 
-        result = self.cm.set_target_switch(targetSwitch)
+        result, trace = self.cm.set_target_switch(targetSwitch)
 
         self.assertFalse(result)
+        self.assertNotEqual(trace, '')
         self.assertIsNone(self.cm.target)
+
+    def test_set_target_stack_FailUnknownStackMember(self):
+        targetSwitch = 'SummitX460-48p, Foo'
+
+        result, trace = self.cm.set_target_switch(targetSwitch)
+
+        self.assertEqual(trace, 'ERROR: Unknown switch name "Foo"')
+
+    def test_set_target_stack_FailSourceOnlyStackMember(self):
+        targetSwitch = 'SummitX460-48p,C5K125-48P2'
+
+        result, trace = self.cm.set_target_switch(targetSwitch)
+
+        self.assertEqual(trace, 'ERROR: All switches in a stack must use same'
+                                ' OS')
 
     def test_create_port_mapping_ok_debug_enabled(self):
         self.cm.enable_debug()
@@ -240,6 +263,7 @@ class CM_Test(unittest.TestCase):
         self.cm.enable_copy_unknown()
         self.cm._create_port_mapping = Mock(return_value=(True, []))
         self.cm.source.configure.return_value = ignoringUnknownCmd
+        self.cm.source.normalize_config.return_value = [cmd], []
         self.cm.source.expand_macros.return_value = [cmd], []
         self.cm.source.get_lags.return_value = []
         self.cm.target.configure.return_value = []
@@ -263,6 +287,7 @@ class CM_Test(unittest.TestCase):
         self.cm.enable_comment_unknown()
         self.cm._create_port_mapping = Mock(return_value=(True, []))
         self.cm.source.configure.return_value = ignoringUnknownCmd
+        self.cm.source.normalize_config.return_value = [cmd], []
         self.cm.source.expand_macros.return_value = [cmd], []
         self.cm.source.get_lags.return_value = []
         self.cm.target.configure.return_value = []
@@ -368,7 +393,7 @@ class CM_Test(unittest.TestCase):
 
         result = self.cm.transfer_config()
 
-        self.assertEquals(expected, result)
+        self.assertEqual(expected, result)
 
     def test_transfer_config_unmapped_configured_port(self):
         self.cm.source = self._setUpSrcSwitch()
@@ -385,7 +410,7 @@ class CM_Test(unittest.TestCase):
 
         result = self.cm.transfer_config()
 
-        self.assertEquals(expected, result)
+        self.assertEqual(expected, result)
 
     def test_transfer_config_lag_ok(self):
         self.cm.source = self._setUpSrcSwitch()
@@ -414,6 +439,7 @@ class CM_Test(unittest.TestCase):
         self.mockTargetVlan.transfer_config.return_value = []
         self.cm._lag_mapping_s2t = {self.sourceLagName: ''}
         self.mockSourceLag.is_disabled_only.return_value = False
+        self.mockSourceLag.accidental_config_only.return_value = False
         expInfoStr = self.InfoStart + 'LAG "' + self.sourceLagName + \
             '" not mapped to target switch, no config transferred'
         expErrStr = self.ErrorStart + 'LAG "' + self.sourceLagName + \
@@ -567,7 +593,7 @@ class CM_Test(unittest.TestCase):
         self.assertEqual(expected_t2s_LagMap, self.cm._lag_mapping_t2s)
 
     def test_create_lag_mapping_fails_srclag_unmpd_max_nr_targetlags_1(self):
-        expectedRet = False
+        expectedRet = True
         expectedErrLst = []
         srcLag2 = Mock(spec=LAG)
         srcLag2.get_name.return_value = 'lag.0.2'
@@ -585,26 +611,6 @@ class CM_Test(unittest.TestCase):
         self.assertEqual(expectedRet, ret)
         self.assertEqual(expectedErrLst, errLst)
 
-    def test_create_lag_mapping_srclag_unmapped_add_lag_fails(self):
-        expectedRet = False
-        expectedErrLst = ['ERROR: Could not add LAG to ']
-        srcLag2 = Mock(spec=LAG)
-        srcLag2.get_name.return_value = 'lag.0.2'
-        srcLag2.is_configured.return_value = True
-        srcLag2.is_disabled_only.return_value = False
-        self.cm._lag_mapping_s2t = {self.sourceLagName: self.targetLagName}
-        self.cm._lag_mapping_t2s = {self.targetLagName: self.sourceLagName}
-        self.mockSourceSwitch.get_lags.return_value = [self.mockSourceLag,
-                                                       srcLag2]
-        self.mockTargetSwitch.get_lags.return_value = [self.mockTargetLag]
-        self.mockTargetSwitch.get_max_lag.return_value = 2
-        self.mockTargetSwitch.add_lag.return_value = expectedErrLst[0]
-
-        ret, errLst = self.cm._create_lag_mapping()
-
-        self.assertEqual(expectedRet, ret)
-        self.assertEqual(expectedErrLst, errLst)
-
     def test_create_lag_mapping_srclag_unmapped_ok(self):
         expectedRet = True
         expectedErrLst = []
@@ -614,6 +620,7 @@ class CM_Test(unittest.TestCase):
         srcLag2.get_name.return_value = srcLag2_Name
         srcLag2.is_configured.return_value = True
         srcLag2.is_disabled_only.return_value = False
+        srcLag2.accidental_config_only.return_value = False
         self.cm._lag_mapping_s2t = {self.sourceLagName: self.targetLagName}
         self.cm._lag_mapping_t2s = {self.targetLagName: self.sourceLagName}
         expLagMapping_s2t = {self.sourceLagName: self.targetLagName,
@@ -631,7 +638,7 @@ class CM_Test(unittest.TestCase):
         self.assertEqual(expectedErrLst, errLst)
         self.assertEqual(expLagMapping_s2t, self.cm._lag_mapping_s2t)
 
-    if __name__ == '__main__':
-        unittest.main()
+if __name__ == '__main__':
+    unittest.main()
 
 # vim:filetype=python:expandtab:shiftwidth=4:tabstop=4

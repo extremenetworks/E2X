@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -45,12 +45,14 @@ class VLAN():
         self._egress_ports = []
         self._ingress_ports = []
         self._switch = switch
+        self._ipv4_acl_in = []
 
     def __str__(self):
         description = 'Name: ' + str(self._name) + ', '
         description += 'Tag: ' + str(self._tag) + ', '
         description += 'Egress ports: ' + str(self._egress_ports) + ', '
-        description += 'Ingress ports: ' + str(self._ingress_ports)
+        description += 'Ingress ports: ' + str(self._ingress_ports) + ', '
+        description += 'IPv4 ACL in: ' + str(self._ipv4_acl_in)
         return description
 
     def get_name(self):
@@ -154,7 +156,7 @@ class VLAN():
         mapped_list, ret = [], []
         for name in from_list:
             if name in shadowed:
-                err = 'WARN: Port "' + name + '" in VLAN "' + str(self._tag)
+                err = 'INFO: Port "' + name + '" in VLAN "' + str(self._tag)
                 err += '" (' + tagging + ', ' + direction + ') omitted because'
                 err += ' of LAG with same target port name'
                 ret.append(err)
@@ -180,12 +182,40 @@ class VLAN():
                             ret.append(err)
         return mapped_list, ret
 
+    def contains_port(self, portname):
+        if portname in [pn for pn, _ in self._egress_ports]:
+            return True
+        if portname in [pn for pn, _ in self._ingress_ports]:
+            return True
+        return False
+
+    def get_ipv4_acl_in(self):
+        return self._ipv4_acl_in
+
+    def set_ipv4_acl_in(self, identifier):
+        """Replace existing ACL"""
+        self._ipv4_acl_in.clear()
+        self._ipv4_acl_in.append(identifier)
+
+    def add_ipv4_acl_in(self, identifier):
+        """Add identifier (number or name) of inbound ACL."""
+        if identifier not in self._ipv4_acl_in:
+            self._ipv4_acl_in.append(identifier)
+        return self._ipv4_acl_in
+
+    def del_ipv4_acl_in(self, identifier):
+        """Delete identifier (number or name) of inbound ACL."""
+        if identifier in self._ipv4_acl_in:
+            self._ipv4_acl_in.remove(identifier)
+        return self._ipv4_acl_in
+
     def transfer_config(self, from_vlan, port_mapping, lag_mapping,
                         unmapped_ports):
         ret = []
         self._name = from_vlan.get_name()
         self._name_is_default = from_vlan.has_default_name()
         self._tag = from_vlan.get_tag()
+        self._ipv4_acl_in = from_vlan.get_ipv4_acl_in()
         # XOS reuses the names of physical ports for LAG names,
         # so remove source ports from the port_mapping, if the same
         # target port is mapped in lag_mapping as well

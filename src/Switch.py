@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -36,6 +36,7 @@ ConfigWriter writes configuration commands. Needs to be subclassed.
 import cmd
 import json
 
+import ACL
 import Port
 import VLAN
 
@@ -50,7 +51,6 @@ class Switch:
     """
 
     DEFAULT_PORT_NAME = 'nn'
-    DEFAULT_SLOT_NR = 1
 
     def __init__(self):
         self._model = None
@@ -59,11 +59,11 @@ class Switch:
         self._hw_desc = []
         self._cmd = CmdInterpreter()
         self._writer = ConfigWriter(self)
-        self._slot = Switch.DEFAULT_SLOT_NR
-        self._stack_member = False
+        self._stack = False
         self._vlans = []
         self._lags = []
         self._stps = []
+        self._acls = []
         self._init_configurable_attributes()
 
     def _init_configurable_attributes(self):
@@ -74,6 +74,8 @@ class Switch:
 
     def __str__(self):
         description = ' Model: ' + str(self._model) + '\n'
+        if self._stack:
+            description += '  [This switch is a stack.]\n'
         description += ' OS:    ' + str(self._os) + '\n'
         description += ' Ports:'
         for p in self._ports:
@@ -94,6 +96,10 @@ class Switch:
         description += ' Spanning Tree:'
         for s in self._stps:
             description += ' (' + str(s) + ')'
+        description += '\n'
+        description += ' ACLs:'
+        for a in self._acls:
+            description += ' (' + str(a) + ')'
         description += '\n'
         return description
 
@@ -127,9 +133,6 @@ class Switch:
     def get_ports(self):
         return self._ports
 
-    def set_slot(self, slot):
-        self._slot = slot
-
     def set_combo_using_sfp(self, sfp_list):
         """Register that the given combo ports use SFP modules."""
         err = []
@@ -149,13 +152,16 @@ class Switch:
                     )
         return err
 
-    def is_stack_member(self):
-        return self._stack_member
+    def is_stack(self):
+        return self._stack
 
-    def _build_port_name(self, index, name_dict):
+    def set_stack(self, is_stack):
+        self._stack = is_stack
+
+    def _build_port_name(self, index, name_dict, slot):
         return Switch.DEFAULT_PORT_NAME
 
-    def add_ports(self, ports_dict):
+    def _add_ports(self, ports_dict, slot):
         start_index = int(ports_dict['label']['start'])
         end_index = int(ports_dict['label']['end']) + 1
         start_name = int(ports_dict['name']['start'])
@@ -163,7 +169,7 @@ class Switch:
         for i, n in zip(range(start_index, end_index),
                         range(start_name, end_name)):
             label = str(i)
-            name = self._build_port_name(str(n), ports_dict['name'])
+            name = self._build_port_name(str(n), ports_dict['name'], slot)
             p = Port.Port(label, name, ports_dict['data'])
             self._ports.append(p)
 
@@ -181,17 +187,18 @@ class Switch:
     def create_lag_name(self, lag_number, lag_ports):
         return '_new_lag_' + str(lag_number)
 
-    def setup_hw(self):
+    def _setup_hw(self):
         """Initialize the hardware model based on a hardware description.
 
         The hardware description is provided using JSON. This JSON data
         structure is added as the specialized attribute of a Switch subclass
-        (respictively in a subclass of an PS specific subclass of Switch).
+        (respectively in a subclass of an OS specific subclass of Switch).
         """
         self._ports = []
-        for l in self._hw_desc:
-            data = json.loads(l)
-            self.add_ports(data['ports'])
+        for slot, port_lst in enumerate(self._hw_desc, 1):
+            for l in port_lst:
+                data = json.loads(l)
+                self._add_ports(data['ports'], slot)
 
     def _port_name_matches_description(self, name, description):
         if name == description:
@@ -219,8 +226,11 @@ class Switch:
                 ll.append(l)
         return ll
 
+    def normalize_config(self, config):
+        return config, []
+
     def expand_macros(self, config):
-        return config
+        return config, []
 
     def configure(self, line):
         return self._cmd.onecmd(line)
@@ -253,6 +263,14 @@ class Switch:
         exists = self.get_vlan(vlan.get_name(), vlan.get_tag())
         if not exists:
             self._vlans.append(vlan)
+
+    def is_port_in_non_default_vlan(self, portname):
+        for vlan in self._vlans:
+            if vlan.get_tag() == 1:
+                continue
+            if vlan.contains_port(portname):
+                return True
+        return False
 
     def get_lacp_support(self):
         return self._lacp_support[0]
@@ -334,7 +352,7 @@ class Switch:
         return None
 
     def add_stp(self, stp):
-        if not stp in self._stps:
+        if stp not in self._stps:
             self._stps.append(stp)
         return self._stps
 
@@ -385,6 +403,43 @@ class Switch:
             else:
                 self._single_port_lag = (t_single_port_lag, reason_conf)
 
+    def get_acls(self):
+        return self._acls
+
+    def get_acl_by_name(self, name):
+        if not name:
+            return None
+        for acl in self._acls:
+            if acl.get_name() == name:
+                return acl
+        return None
+
+    def get_acl_by_number(self, number):
+        if not number:
+            return None
+        for acl in self._acls:
+            if acl.get_number() == number:
+                return acl
+        return None
+
+    # TODO This is ambiguous
+    def add_acl(self, number=None, name=None):
+        if number is None and not name:
+            return 'ERROR: ACL needs name or number'
+        if number and name:
+            return 'ERROR: ACL can have either name or number, but not both'
+        acl = None
+        if number and self.get_acl_by_number(number):
+            return 'ERROR: ACL "' + str(number) + '" already exists'
+        elif name and self.get_acl_by_name(name):
+            return 'ERROR: ACL "' + str(name) + '" already exists'
+        acl = ACL.ACL(number=number, name=name)
+        self._acls.append(acl)
+        return ''
+
+    def add_complete_acl(self, new_acl):
+        self._acls.append(new_acl)
+
 
 class CmdInterpreter(cmd.Cmd):
 
@@ -428,7 +483,7 @@ class ConfigWriter:
     """
 
     def __init__(self, switch):
-        self._feature_modules = ['port', 'lag', 'vlan', 'stp']
+        self._feature_modules = ['port', 'lag', 'vlan', 'stp', 'acl']
         self._switch = switch
 
     def check_unwritten(self):
@@ -486,7 +541,8 @@ class ConfigWriter:
                     p.get_name(), p.get_stp_edge())
                 msg += ' omitted from configuration file'
                 unwritten.append(msg)
-            if p.get_stp_bpdu_guard_reason() == 'transfer_conf':
+            if (p.get_stp_bpdu_guard_reason() == 'transfer_conf' and
+                    p.get_stp_edge()):
                 msg = 'WARN: STP SpanGuard of port "{}" set to "{}"'.format(
                     p.get_name(), p.get_stp_bpdu_guard())
                 msg += ' omitted from configuration file'
@@ -495,6 +551,11 @@ class ConfigWriter:
                 msg = ('WARN: STP SpanGuard recovery time of port "{}" set to'
                        ' "{}"'.format(p.get_name(),
                                       p.get_stp_bpdu_guard_recovery_time()))
+                msg += ' omitted from configuration file'
+                unwritten.append(msg)
+            if p.get_ipv4_acl_in_reason() == 'transfer_conf':
+                msg = 'WARN: Inbound ACL of port "{}" set to "{}"'.format(
+                    p.get_name(), str(p.get_ipv4_acl_in()))
                 msg += ' omitted from configuration file'
                 unwritten.append(msg)
         # TODO: implement "unwritten" check for feature module VLAN

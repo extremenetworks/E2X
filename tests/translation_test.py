@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -37,6 +37,9 @@ class Translation_test(unittest.TestCase):
 
     def setUp(self):
         self.cm = CM.CoreModule()
+        self.acl_deny_any = (
+            '# next entry added to match EOS ACL implicit deny\n'
+            'entry 20 {\n  if {\n  } then {\n    deny;\n  }\n}\n')
 
     def test_translate_fails_because_of_missing_feature_module(self):
         cmd = 'set snmp group company security-model v1'
@@ -434,7 +437,7 @@ class Translation_test(unittest.TestCase):
             'set vlan name 103 "VIRTUAL SERVER 3"',
             'set vlan name 104 "VIRTUAL SERVER 4"',
             'set vlan name 105 "VIRTUAL SERVER 5"',
-            'set vlan name 200 SERVER',
+            'set vlan name 200 "SERVER"',
             'set vlan name 300 WIRELESS',
             'set vlan name 666 "UNUSED PORTS"',
             'set vlan name 1000 "NATIVE"',
@@ -598,6 +601,215 @@ class Translation_test(unittest.TestCase):
             'configure vlan SYS_NLD_3009 add ports 21,23 tagged',
             'create vlan SYS_NLD_3010 tag 3010',
             'configure vlan SYS_NLD_3010 add ports 21,23 tagged']
+        self.cm.set_source_switch('C5K125-48P2')
+        self.cm.set_target_switch('SummitX460-48p+2sf')
+        translatedList, err = self.cm.translate(translateList)
+        for exp in expected:
+            self.assertIn(exp, translatedList)
+
+    def test_translate_acl_int_ok(self):
+        translateList = ['router', 'enable', 'configure',
+                         'access-list interface 47 ge.1.47 in',
+                         'exit', 'exit', 'exit']
+        expected = ['configure access-list acl_47 ports 47 ingress']
+        self.cm.set_source_switch('C5K125-48P2')
+        self.cm.set_target_switch('SummitX460-48p+2sf')
+        translatedList, err = self.cm.translate(translateList)
+        for exp in expected:
+            self.assertIn(exp, translatedList)
+
+    def test_translate_ip_access_group_ok(self):
+        translateList = ['router', 'enable', 'configure',
+                         'interface vlan 1',
+                         'ip access-group 47 in',
+                         'exit',
+                         'exit', 'exit', 'exit']
+        expected = ['configure access-list acl_47 vlan Default ingress']
+        self.cm.set_source_switch('C5K125-48P2')
+        self.cm.set_target_switch('SummitX460-48p+2sf')
+        translatedList, err = self.cm.translate(translateList)
+        for exp in expected:
+            self.assertIn(exp, translatedList)
+
+    def test_translate_std_access_list_ok(self):
+        translateList = ['router', 'enable', 'configure',
+                         'access-list 42 permit 192.0.2.0 0.0.0.255',
+                         'exit', 'exit', 'exit']
+        expected = [['acl_42', 'entry 10 {\n  if {\n    source-address'
+                     ' 192.0.2.0/255.255.255.0;\n  } then {\n    permit;'
+                     '\n  }\n}\n',
+                     self.acl_deny_any]]
+        self.cm.set_source_switch('C5K125-48P2')
+        self.cm.set_target_switch('SummitX460-48p+2sf')
+        translatedList, err = self.cm.translate(translateList)
+        for exp in expected:
+            self.assertIn(exp, translatedList)
+
+    def test_translate_ext_access_list_ok(self):
+        translateList = ['router', 'enable', 'configure',
+                         'access-list 100 permit tcp 192.0.2.0 0.0.0.255 any',
+                         'exit', 'exit', 'exit']
+        expected = [['acl_100', 'entry 10 {\n  if {\n    protocol tcp;'
+                     '\n    source-address 192.0.2.0/255.255.255.0;'
+                     '\n  } then {\n    permit;\n  }\n}\n',
+                     self.acl_deny_any]]
+        self.cm.set_source_switch('C5K125-48P2')
+        self.cm.set_target_switch('SummitX460-48p+2sf')
+        translatedList, err = self.cm.translate(translateList)
+        for exp in expected:
+            self.assertIn(exp, translatedList)
+
+    def test_translate_ext_access_list_ok2(self):
+        translateList = ['router', 'enable', 'configure',
+                         'access-list 101 permit tcp 192.0.2.0 0.0.0.127 '
+                         '192.0.2.128 0.0.0.127',
+                         'exit', 'exit', 'exit']
+        expected = [['acl_101', 'entry 10 {\n  if {\n    protocol tcp;'
+                     '\n    source-address 192.0.2.0/255.255.255.128;'
+                     '\n    destination-address 192.0.2.128/255.255.255.128;'
+                     '\n  } then {\n    permit;\n  }\n}\n',
+                     self.acl_deny_any]]
+        self.cm.set_source_switch('C5K125-48P2')
+        self.cm.set_target_switch('SummitX460-48p+2sf')
+        translatedList, err = self.cm.translate(translateList)
+        for exp in expected:
+            self.assertIn(exp, translatedList)
+
+    def test_translate_ext_access_list_udp_ok(self):
+        translateList = ['router', 'enable', 'configure',
+                         'access-list 102 permit udp 192.0.2.0 0.0.0.127 '
+                         '192.0.2.128 0.0.0.127',
+                         'exit', 'exit', 'exit']
+        expected = [['acl_102', 'entry 10 {\n  if {\n    protocol udp;'
+                     '\n    source-address 192.0.2.0/255.255.255.128;'
+                     '\n    destination-address 192.0.2.128/255.255.255.128;'
+                     '\n  } then {\n    permit;\n  }\n}\n',
+                     self.acl_deny_any]]
+        self.cm.set_source_switch('C5K125-48P2')
+        self.cm.set_target_switch('SummitX460-48p+2sf')
+        translatedList, err = self.cm.translate(translateList)
+        for exp in expected:
+            self.assertIn(exp, translatedList)
+
+    def test_translate_ext_access_list_igmp_ok(self):
+        translateList = ['router', 'enable', 'configure',
+                         'access-list 102 permit igmp 192.0.2.0 0.0.0.127 '
+                         '192.0.2.128 0.0.0.127',
+                         'exit', 'exit', 'exit']
+        expected = [['acl_102', 'entry 10 {\n  if {\n    protocol igmp;'
+                     '\n    source-address 192.0.2.0/255.255.255.128;'
+                     '\n    destination-address 192.0.2.128/255.255.255.128;'
+                     '\n  } then {\n    permit;\n  }\n}\n',
+                     self.acl_deny_any]]
+        self.cm.set_source_switch('C5K125-48P2')
+        self.cm.set_target_switch('SummitX460-48p+2sf')
+        translatedList, err = self.cm.translate(translateList)
+        for exp in expected:
+            self.assertIn(exp, translatedList)
+
+    def test_translate_ext_access_list_igmp_mixed_case_ok(self):
+        translateList = ['Router', 'Enable', 'Configure',
+                         'Access-list 102 Permit IGMP 192.0.2.0 0.0.0.127 '
+                         '192.0.2.128 0.0.0.127',
+                         'eXit', 'Exit', 'exit']
+        expected = [['acl_102', 'entry 10 {\n  if {\n    protocol igmp;'
+                     '\n    source-address 192.0.2.0/255.255.255.128;'
+                     '\n    destination-address 192.0.2.128/255.255.255.128;'
+                     '\n  } then {\n    permit;\n  }\n}\n',
+                     self.acl_deny_any]]
+        self.cm.set_source_switch('C5K125-48P2')
+        self.cm.set_target_switch('SummitX460-48p+2sf')
+        translatedList, err = self.cm.translate(translateList)
+        for exp in expected:
+            self.assertIn(exp, translatedList)
+
+    def test_translate_ext_access_list_ip_ok(self):
+        translateList = ['router', 'enable', 'configure',
+                         'access-list 222 permit ip 192.0.2.0 0.0.0.127 '
+                         '192.0.2.128 0.0.0.127',
+                         'exit', 'exit', 'exit']
+        expected = [['acl_222', 'entry 10 {\n  if {'
+                     '\n    source-address 192.0.2.0/255.255.255.128;'
+                     '\n    destination-address 192.0.2.128/255.255.255.128;'
+                     '\n  } then {\n    permit;\n  }\n}\n',
+                     self.acl_deny_any]]
+        self.cm.set_source_switch('C5K125-48P2')
+        self.cm.set_target_switch('SummitX460-48p+2sf')
+        translatedList, err = self.cm.translate(translateList)
+        for exp in expected:
+            self.assertIn(exp, translatedList)
+
+    def test_translate_ext_access_list_icmp_ok(self):
+        translateList = ['router', 'enable', 'configure',
+                         'access-list 102 permit icmp 192.0.2.0 0.0.0.127 '
+                         '192.0.2.128 0.0.0.127',
+                         'exit', 'exit', 'exit']
+        expected = [['acl_102', 'entry 10 {\n  if {\n    protocol icmp;'
+                     '\n    source-address 192.0.2.0/255.255.255.128;'
+                     '\n    destination-address 192.0.2.128/255.255.255.128;'
+                     '\n  } then {\n    permit;\n  }\n}\n',
+                     self.acl_deny_any]]
+        self.cm.set_source_switch('C5K125-48P2')
+        self.cm.set_target_switch('SummitX460-48p+2sf')
+        translatedList, err = self.cm.translate(translateList)
+        for exp in expected:
+            self.assertIn(exp, translatedList)
+
+    def test_translate_ext_access_list_mixed_case_ok(self):
+        translateList = ['rOutEr', 'ENAble', 'Configure',
+                         'ACceSs-liSt 102 perMit IcMp 192.0.2.0 0.0.0.127 '
+                         '192.0.2.128 0.0.0.127',
+                         'Exit', 'eXit', 'exiT']
+        expected = [['acl_102', 'entry 10 {\n  if {\n    protocol icmp;'
+                     '\n    source-address 192.0.2.0/255.255.255.128;'
+                     '\n    destination-address 192.0.2.128/255.255.255.128;'
+                     '\n  } then {\n    permit;\n  }\n}\n',
+                     self.acl_deny_any]]
+        self.cm.set_source_switch('C5K125-48P2')
+        self.cm.set_target_switch('SummitX460-48p+2sf')
+        translatedList, err = self.cm.translate(translateList)
+        for exp in expected:
+            self.assertIn(exp, translatedList)
+
+    def test_translate_ip_access_group_mixed_case_ok(self):
+        translateList = ['rOuTer', 'enabLe', 'conFigure',
+                         'InterFace Vlan 1',
+                         'iP accEss-groUp 47 In',
+                         'Exit',
+                         'eXIt', 'EXIT', 'exit']
+        expected = ['configure access-list acl_47 vlan Default ingress']
+        self.cm.set_source_switch('C5K125-48P2')
+        self.cm.set_target_switch('SummitX460-48p+2sf')
+        translatedList, err = self.cm.translate(translateList)
+        for exp in expected:
+            self.assertIn(exp, translatedList)
+
+    def test_translate_dynamic_lag_mixed_case_ok(self):
+        translateList = ['sET Lacp aadmINkey lag.0.1 100',
+                         'set pOrt lAcp pOrt ge.1.1-2 aadMInkey 100',
+                         'Set Port lacP pOrt ge.1.1-2 eNAble']
+        expected = ['enable sharing 1 grouping 1-2 algorithm address-based L3'
+                    ' lacp']
+        self.cm.set_source_switch('C5K125-48P2')
+        self.cm.set_target_switch('SummitX460-48p+2sf')
+        translatedList, err = self.cm.translate(translateList)
+        for exp in expected:
+            self.assertIn(exp, translatedList)
+
+    def test_translate_static_lag_mixed_case_ok(self):
+        translateList = ['seT Lacp STatic lag.0.1 Key 100 ge.1.1-2']
+        expected = ['enable sharing 1 grouping 1-2 algorithm address-based L3']
+        self.cm.set_source_switch('C5K125-48P2')
+        self.cm.set_target_switch('SummitX460-48p+2sf')
+        translatedList, err = self.cm.translate(translateList)
+        for exp in expected:
+            self.assertIn(exp, translatedList)
+
+    def test_translate_static_lag_manual_mixed_case_ok(self):
+        translateList = ['seT lAcp sTAtic lag.0.1',
+                         'SET LACP AADMINKEY lag.0.1 100',
+                         'Set Port laCP poRt ge.1.1-2 AAdminKey 100']
+        expected = ['enable sharing 1 grouping 1-2 algorithm address-based L3']
         self.cm.set_source_switch('C5K125-48P2')
         self.cm.set_target_switch('SummitX460-48p+2sf')
         translatedList, err = self.cm.translate(translateList)

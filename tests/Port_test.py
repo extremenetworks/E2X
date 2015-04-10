@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -177,7 +177,8 @@ class Port_test(unittest.TestCase):
         expected += 'STP Auto Edge: None, '
         expected += 'STP Admin Edge: None, '
         expected += 'STP BPDU Guard: None, '
-        expected += 'STP BPDU Guard Recovery Time: None'
+        expected += 'STP BPDU Guard Recovery Time: None, '
+        expected += 'Inbound ACL: []'
 
         result = str(self.p)
 

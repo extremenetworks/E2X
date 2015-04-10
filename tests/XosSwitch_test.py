@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -42,22 +42,23 @@ class XosSwitch_test(unittest.TestCase):
     def setUp(self):
         self.sw = XOS.XosSwitch()
 
-    def test_build_port_name_as_stack_member(self):
-        self.sw._stack_member = True
+    def test_build_port_name_is_stack(self):
+        self.sw.set_stack(True)
         sep = self.sw._sep
         label = 1
-        expected = str(self.sw.DEFAULT_SLOT_NR) + sep + str(label)
+        slot = 1
+        expected = str(slot) + sep + str(label)
 
-        result = self.sw._build_port_name(1, {})
+        result = self.sw._build_port_name(1, {}, slot)
 
         self.assertEqual(expected, result)
 
-    def test_build_port_name_not_a_stack_member(self):
-        sep = self.sw._sep
+    def test_build_port_name_is_not_a_stack(self):
         label = 1
+        slot = 1
         expected = str(label)
 
-        result = self.sw._build_port_name(1, {})
+        result = self.sw._build_port_name(1, {}, slot)
 
         self.assertEqual(expected, result)
 
@@ -81,6 +82,7 @@ class XosSwitch_test(unittest.TestCase):
 
         self.assertEqual(methodCalls, mockPort.method_calls)
         mockVlan.set_name.assert_called_with('Default', True)
+
 
 if __name__ == '__main__':
     unittest.main()
