@@ -37,7 +37,7 @@ result in many unknown commands, but using (a combination of) supported
 configuration sections should result in a useful translation without
 (many) warnings or even errors.
 
-You can print a configuration section using the `show config
+You can print a configuration section on EOS using the `show config
 SECTION` command, e.g. `show config vlan` or `show config
 router`.
 
@@ -51,21 +51,9 @@ E2X supports EOS text configuration files as input. All keywords must be
 written completely, unique abbreviations as known from the switch
 command line are *not* supported.
 
-Partial configurations may result in warnings, e.g. a router mode command
-such as `access-list 1 permit 192.0.2.0 0.0.0.255` without first entering
-the router configuration mode. To translate an ACL without warnings
-enclose it in entering and leaving router configuration mode:
-
-    router
-    enable
-    configure
-    access-list 1 permit 192.0.2.0 0.0.0.255
-    exit
-    exit
-    exit
-
-Most `set` commands can be translated in isolation, but some, like setting
-a VLAN name, need preceding commands.
+Partial configurations may result in warnings or errors. Most `set`
+commands can be translated in isolation, but some, like setting a VLAN
+name, need preceding commands.
 
 Trying to translate `set vlan name 3 Three` results in the error `ERROR:
 VLAN 3 not found (set vlan name)` and no translated configuration. Before
@@ -82,7 +70,8 @@ will create the translation:
 
 E2X supports ExtremeXOS text configuration files, also known as EXOS script
 files (extension .xsf), and policy files (extension .pol) for access lists,
-as output.
+as output. The policy file names are used to reference the respective EXOS
+policies in the translated configuration (EXOS script file).
 
 ### Source Switch Models
 
@@ -136,6 +125,9 @@ The switch model name list must not contain any whitespace.
 If the target switch is used standalone, but with enabled stacking,
 you can append a comma to the target switch model name to create a
 translation suitable for a switch in stacking mode.
+
+SummitStack switches must be configured for stacking before the translated
+stack configuration can be applied.
 
 ### Warnings
 
@@ -216,6 +208,20 @@ This will create the output files *config1.xsf*, *config2.xsf*, and
 *config3.xsf*. For each configuration containing ACLs, a directory
 containing one policy file per ACL is created as well.
 
+### Interactive Mode
+
+E2X version 0.7.x adds an *interactive mode*, selected by providing the
+option `--interactive`:
+
+    e2x.py --interactive
+
+If the `--interactive` option is given, all other options except `--debug`
+are ignored.
+
+In *interactive mode*, individual commands are translated, and how-tos
+(e.g. how to perform a firmware upgrade) are available as well. Thus
+*interactive mode* can be used as an interactive reference dictionary.
+
 ### Options Overview
 
 The behavior of E2X can be controlled using command line options.
@@ -253,14 +259,20 @@ configuration commands.
 * -q, --quiet
     * Suppress non-error messages. This is helpful if you have already read
       the notification messages pertaining to a translation, and want to
-      see any errors more distinctly.
+      see any errors more distinctly. This is the same as *--log-level ERROR*
 * -v, --verbose
     * Print additional, informational messages. This is helpful in understanding
-      how the translation is progressing.
+      how the translation is progressing. This is the same as *--log-level INFO*
 * -D, --debug
     * Print debugging messages. This may be needed to gather relevant
       information for fixing a bug in E2X. This prints a lot of information,
-      so you probably want to capture it in a file.
+      so you probably want to capture it in a file. This option results in
+      even more output that using *--log-level DEBUG*
+* --log-level
+    * Control which messages are printed. Only messages with importance equal
+      or higher than the specified log level will be printed. The possible log
+      levels from lowest to highest are *DEBUG*, *INFO*, *NOTICE*, *WARN*,
+      and *ERROR*.
 * --source *source_switch_model*
     * Specify the source switch model to use. This should correspond to the
       switch configuration that shall be translated. The switch model is used
@@ -275,7 +287,7 @@ configuration commands.
         * C5K125-48
         * C5K125-48P2
         * C5K175-24
-      A stack of switches is specified by combining the switch model keywords
+    * A stack of switches is specified by combining the switch model keywords
       in a comma separated list. The order of switch model keywords defines
       the position in the stack. The list must not contain any spaces (or
       any other whitespace):
@@ -321,12 +333,12 @@ configuration commands.
         * SummitX460-48x+2xf
         * SummitX460-48x+2xf+4sf
         * SummitX460-48x+4sf
-      A stack of switches is specified by combining the switch model keywords
+    * A stack of switches is specified by combining the switch model keywords
       in a comma separated list. The order of switch model keywords defines
       the position in the stack. The list must not contain any spaces (or
       any other whitespace):
         * SummitX460-48p+2sf,SummitX460-24t,SummitX460-48p+2sf
-      To specify that the standalone target switch is configured for stacking
+    * To specify that the standalone target switch is configured for stacking
       (`enable stacking`), append a comma to the switch model name:
         * SummitX460-24t,
 * -o *file*, --outfile *file*
@@ -334,8 +346,11 @@ configuration commands.
       If this option is used and several input files are given, *all* translated
       configuration lines are written to the same file.
 * -d *outdir*, --outdir *outdir*
-    * Specify a directory to save all output files in. If this option is not
-      used, the current directory is used.
+    * Specify a directory to save all output files in. Without this option,
+      the current directory is used.
+* --mgmt-port
+    * Use XOS management port instead of in-band management for management IP
+      address purposes during translation
 * --sfp-list *ports*
     * Specify the ports to be used with SFPs. This is important to map e.g.
       combo ports used with SFPs to pure SFP ports.
@@ -382,16 +397,28 @@ configuration commands.
       To prevent unexpected results from unconfigured ports, they should
       be disabled. Thus manual intervention is needed to actually use those
       ports, and the missing configuration should be noticed.
+* --interactive
+    * Translate EXOS commands on the fly. All other given options, except *-D*
+      or *--debug*, are ignored. Commands are translated stateless, previous
+      commands are not taken into account. No source or target hardware
+      model is used, port names are just translated, not mapped.
+      So, for example, giving `"show ip arp vlan 42"` as input results in `"show
+      iparp vlan <NAME_OF_VLAN_WITH_TAG_42>"`.
+      This mode also allows the display of predefined HowTos, e.g, "How to
+      upgrade firmware".
+      The commands supported in interactive mode differ from those supported
+      in normal mode.
 
 ### E2X as a Filter Program
 
-E2X works like a filter program as know from Unix operation systems
-(see https://en.wikipedia.org/wiki/Filter_(software) for info).
-Thus all program input can be provided on *standard input*, the translated
+E2X works like a filter program as know from Unix operating systems (see
+https://en.wikipedia.org/wiki/Filter_(software) for info). Thus all
+program input can be provided on *standard input*, the translated
 configuration is written to *standard output*, and additional program
-output (e.g. error messages) is written to *standard error*. The contents
-of policy files is preceeded by a comment line with the name for the policy
-file which is used in the translated configuration.
+output (e.g. error messages) is written to *standard error*. If *standard
+output* is used for the translation, the contents of policy files is
+preceeded by a comment line with the name for the policy file which is
+used in the translated configuration.
 
 ## Examples
 
@@ -828,3 +855,66 @@ between the two CTRL-D inputs.
 
     $ echo 'set port disable ge.1.1' | e2x.py --quiet --ignore-defaults
     disable ports 1
+
+### Interactive Mode
+
+Inquiring about the firmware upgrade procedure on EXOS by displaying a how-to.
+The individual EOS commands shown in the how-to can be translated as well.
+
+    $ e2x.py --interactive
+    e2x v0.7.0
+    Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
+    Use is subject to license terms.
+    This is free software, licensed under CDDL 1.0
+
+    % Command translation assumes VLAN 1 for management
+
+    Enter "howtos" to show list
+    Enter "1".."2" to select HowTo
+    Enter configline to translate
+    Enter "q" to quit
+
+    e2x> howtos
+
+    List of HowTos:
+      1: Upgrade firmware
+      2: Reset switch to factory defaults
+
+    Enter "1".."2" to select HowTo
+    Enter configline to translate
+    Enter "q" to quit
+
+    e2x> 1
+
+
+    HowTo Upgrade firmware:
+
+     EOS
+       copy <SOURCE> system:image
+       set boot system <IMAGENAME>
+       reset
+
+     XOS
+       download image <SOURCEHOST> <[DIR/]SOURCEFILE> vr VR-Default <PARTITION>
+       install image <SOURCEFILE> <PARTITION>
+       use image partition <PARTITION>
+       reboot
+
+     Hint
+       You may need to install additional XMODs, e.g. for SSH.
+
+
+    Enter "howtos" to show list
+    Enter "1".."2" to select HowTo
+    Enter configline to translate
+    Enter "q" to quit
+
+    e2x> copy tftp://192.0.2.33/exos/summitX-15.4.1.3.xos system:image
+    download image 192.0.2.33 exos/summitX-15.4.1.3.xos vr VR-Default primary
+    e2x> set boot system exos/summitX-15.4.1.3.xos
+    use image partition {primary|secondary}
+    e2x> reset
+    reboot
+    e2x> q
+
+    $

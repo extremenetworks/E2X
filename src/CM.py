@@ -33,7 +33,6 @@ e.g. the command line front end implemented by cli.py.
 The class CoreModule provides the translation interface.
 """
 
-import sys
 import traceback
 
 import ACL
@@ -69,6 +68,7 @@ class CoreModule:
     enable_copy_unknown() enables copying unknown input lines to the output.
     enable_comment_unknown() outputs unknown lines as comments, not verbatim.
     disable_unused_ports() generates configuration to disable unmapped ports.
+    use_oob_mgmt() specifies if an OOB management port is used or not.
     get_source_switches() returns a list of supported source switches.
     get_target_switches() returns a list of supported target switches.
     set_source_switch(model) sets the source switch used for translation.
@@ -83,6 +83,7 @@ class CoreModule:
         self._copy_unknown = False
         self._comment_unknown = False
         self._disable_unused_ports = False
+        self._use_oob_mgmt = False
         # retrieve list of supported source switches
         self._source_switches = []
         for dev in _devices:
@@ -119,6 +120,9 @@ class CoreModule:
 
     def disable_unused_ports(self):
         self._disable_unused_ports = True
+
+    def use_oob_mgmt(self, state):
+        self._use_oob_mgmt = state
 
     def get_source_switches(self):
         return self._source_switches
@@ -372,6 +376,15 @@ class CoreModule:
                                   ace.get_dest_port())
                 new_acl.add_ace(new_ace)
             self.target.add_complete_acl(new_acl)
+
+        # Loopback interface configuration
+        source_loopback_list = self.source.get_all_loopbacks()
+        for s_lo in source_loopback_list:
+            self.target.add_loopback(s_lo.get_number())
+            t_lo = self.target.get_loopback(s_lo.get_number())
+            if t_lo:
+                t_lo.transfer_config(s_lo)
+
         return ret
 
     def translate(self, config):
@@ -425,7 +438,7 @@ class CoreModule:
 
         transfer_errs = self.transfer_config()
         err.extend(transfer_errs)
-        translation, errors = self.target.create_config()
+        translation, errors = self.target.create_config(self._use_oob_mgmt)
         if unknown:
             translation.append('')
             translation.extend(unknown)

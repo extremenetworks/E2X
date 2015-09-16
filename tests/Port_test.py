@@ -442,7 +442,7 @@ class Port_test(unittest.TestCase):
         self.assertIsNone(self.p.get_lacp_aadminkey_reason())
 
     def test_is_configured_one_attribute(self):
-        reason_config, other_reason = 'config', 'test'
+        reason_config = 'config'
         dont_matter = 'dnm'
 
         result_attribute_conf_states_default = self.p.is_configured()
@@ -455,7 +455,7 @@ class Port_test(unittest.TestCase):
         self.assertTrue(result_one_attribute_is_configured)
 
     def test_is_configured_two_attributes(self):
-        reason_config, other_reason = 'config', 'test'
+        reason_config = 'config'
         dont_matter = 'dnm'
 
         result_attribute_conf_states_default = self.p.is_configured()

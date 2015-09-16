@@ -38,7 +38,6 @@ Standard_ACE is a convenience class for modelling standard ACEs for standard
 ACLs.
 """
 
-import functools
 import ipaddress
 
 
@@ -86,10 +85,7 @@ class ACL:
 
     def is_standard(self):
         """Whether this is a standard ACL (filtering on source IP only)."""
-        tmp = [ace.is_standard() for ace in self._entries]
-        pred = lambda a, b: a and b
-        ret = functools.reduce(pred, tmp)
-        return ret
+        return all([ace.is_standard() for ace in self._entries])
 
     def get_number(self):
         """Get the identifying number of the ACL."""

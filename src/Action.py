@@ -1,5 +1,3 @@
-#! /usr/bin/env python3
-
 # CDDL HEADER START
 #
 # The contents of this file are subject to the terms
@@ -27,16 +25,14 @@
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
 
-"""Entry point for the e2x.py binary (which is a ZIP archive)."""
 
-import sys
-
-import cli
-
-
-if __name__ == '__main__':
-    cmdlineArgs = sys.argv[1:]
-    ret = cli.main(cmdlineArgs)
-    sys.exit(ret)
+class Action:
+    exit = 1
+    display_howto_descriptions = 2
+    display_howto = 3
+    translate = 4
+    parameter = ''
+    command = 0
+    display_command_list = 5
 
 # vim:filetype=python:expandtab:shiftwidth=4:tabstop=4

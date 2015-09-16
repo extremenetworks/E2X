@@ -266,8 +266,8 @@ class XosConfigWriter_test(unittest.TestCase):
     def test_normalize_vlan_name_contains_spaces(self):
         name = 'foo bar'
         self.mockVlan.get_name.return_value = name
-        expected = [self.WarningStart +
-                    'Replacing " " with "_" in VLAN name "' + name + '"']
+        expected = [self.NoticeStart +
+                    'Replaced " " with "_" in VLAN name "' + name + '"']
 
         result = self.cw._normalize_vlan(self.mockVlan)
 
@@ -483,7 +483,7 @@ class XosConfigWriter_test(unittest.TestCase):
     def test_handle_additional_vlan_no_name(self):
         self.vlan.set_name(None)
 
-        expectedConf = ['create vlan SYS_NLD_0100 tag ' +
+        expectedConf = ['create vlan VLAN_0100 tag ' +
                         str(self.vlan.get_tag())]
         expectedErr = []
         expected = (expectedConf, expectedErr)
@@ -1309,7 +1309,7 @@ class XosConfigWriter_test(unittest.TestCase):
         self.stp.disable('test')
         self.cw._get_stp_processes_for_port = \
             MagicMock(return_value=[self.stp.get_name()])
-        port = self._createMockPort()
+        self._createMockPort()
         expErrLst = []
         expConfLst = ['disable stpd s0 ports ' + self.portName]
         expected = (expConfLst, expErrLst)

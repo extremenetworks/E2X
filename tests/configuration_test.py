@@ -71,12 +71,11 @@ class Configuration_test(unittest.TestCase):
         configLine = 'set port disable ' + portName
         self.sw.get_ports_by_name(portName)[0].set_admin_state(True, None)
 
-        expected = 'Success'
-
         result = self.sw.configure(configLine)
         portState = self.sw.get_ports_by_name(portName)[0].get_admin_state()
 
         self.assertEqual(False, portState)
+        self.assertEqual('', result)
 
 if __name__ == '__main__':
     unittest.main()

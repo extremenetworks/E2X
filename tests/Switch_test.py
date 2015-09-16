@@ -212,6 +212,8 @@ class Switch_test(unittest.TestCase):
         v = MagicMock(spec=VLAN.VLAN)
         v.__str__.return_value = ''
 
+        self.maxDiff = None
+
         self.sw._model = 'nn'
         self.sw._os = 'nn'
         self.sw._ports.append(p)
@@ -220,13 +222,36 @@ class Switch_test(unittest.TestCase):
 
         expected = ' Model: nn' + '\n'
         expected += ' OS:    nn' + '\n'
+        expected += ' Prompt: (None, None)\n'
+        expected += ' SNMP SysName: (None, None)\n'
+        expected += ' SNMP SysContact: (None, None)\n'
+        expected += ' SNMP SysLocation: (None, None)\n'
+        expected += ' Login Banner: (None, None)\n'
+        expected += ' Login Banner Acknowledge: (None, None)\n'
+        expected += ' MOTD Banner: (None, None)\n'
+        expected += ' Inbound Telnet: (None, None)\n'
+        expected += ' Outbound Telnet: (None, None)\n'
+        expected += ' Inbound SSH: (None, None)\n'
+        expected += ' Outbound SSH: (None, None)\n'
+        expected += ' SSL: (None, None)\n'
+        expected += ' HTTP: (None, None)\n'
+        expected += ' HTTPS: (None, None)\n'
+        expected += ' Mgmt IP: (None, None)\n'
+        expected += ' Mgmt Netmask: (None, None)\n'
+        expected += ' Mgmt VLAN: (None, None)\n'
+        expected += ' Mgmt Gateway: (None, None)\n'
+        expected += ' Mgmt Protocol: (None, None)\n'
+        expected += ' Idle Timeout: (None, None)\n'
+        expected += ' Syslog Servers:\n'
+        expected += ' SNTP Client Mode: (None, None)\n'
+        expected += ' SNTP Servers:\n'
         expected += ' Ports:'
         for p in self.sw._ports:
             expected += ' ()'
-        expected += '\n'
-        expected += ' VLANs:'
+        expected += '\n VLANs:'
         for v in self.sw._vlans:
             expected += ' ()'
+        expected += '\n Loopbacks:'
         expected += '\n'
         expected += ' LAGs:'
         for l in self.sw._lags:
@@ -237,6 +262,8 @@ class Switch_test(unittest.TestCase):
         expected += ' Single Port LAG: (None, None)\n'
         expected += ' Spanning Tree:\n'
         expected += ' ACLs:\n'
+        expected += ' IPv4 Routing: (None, None)\n'
+        expected += ' IPv4 Static Routes: set()\n'
 
         result = str(self.sw)
 
@@ -488,12 +515,19 @@ class Switch_test(unittest.TestCase):
     def test_apply_default_settings(self):
         self.sw.apply_default_settings()
 
-    def test_create_config(self):
+    def test_create_config_no_oob(self):
         self.sw._writer.generate = MagicMock()
 
-        self.sw.create_config()
+        self.sw.create_config(False)
 
         self.sw._writer.generate.assert_called_once_with()
+        self.assertFalse(self.sw._use_oob_mgmt)
+
+    def test_create_config_with_oob(self):
+        self.sw._writer.generate = MagicMock()
+        self.sw.create_config(True)
+        self.sw._writer.generate.assert_called_once_with()
+        self.assertTrue(self.sw._use_oob_mgmt)
 
     def test_expand_macros(self):
         config = 'foo'

@@ -50,13 +50,16 @@ class XosConfigWriter(Switch.ConfigWriter):
     vlan() implements VLAN specific configuration (feature module "VLAN").
     lag() implements LAG specific configuration (feature module "LAG").
     stp() implements spanning tree configuration (feature module "STP").
+    acl() implements IPv4 access control lists (feature module "ACL").
+    mgmt() implements switch management specifics (FM "Management").
     """
 
     def __init__(self, switch):
         super().__init__(switch)
 
-    def _replace_special_characters(self, name):
-        trans_dict = str.maketrans('"<>: &', '______')
+    def _replace_special_characters(self, name, allow_space=False):
+        trans_dict = (str.maketrans('"<>: &*', '_______') if not allow_space
+                      else str.maketrans('"<>:&*', '______'))
         return name.translate(trans_dict)
 
     def port(self):
@@ -145,14 +148,15 @@ class XosConfigWriter(Switch.ConfigWriter):
                 acl_lst = p.get_ipv4_acl_in()
                 acl_id = None
                 if len(acl_lst) > 1:
-                    err.append('ERROR: EXOS allows only one ACL per port')
+                    err.append('ERROR: EXOS allows only one ACL per port (' +
+                               'port "' + p.get_name() + '")')
                 elif len(acl_lst) == 1:
                     acl_id = acl_lst[0]
                 if acl_id is not None:
                     line = ('configure access-list acl_' + str(acl_id) +
                             ' ports ' + p.get_name() + ' ingress')
                     conf.append(line)
-                    p.set_ipv4_acl_in(acl_id, reason)
+                p.set_ipv4_acl_in(acl_lst, reason)
 
         return conf, err
 
@@ -209,7 +213,6 @@ class XosConfigWriter(Switch.ConfigWriter):
         untagged_egress = vlan.get_egress_ports('untagged')
         tagged_egress = vlan.get_egress_ports('tagged')
         untagged_ingress = vlan.get_ingress_ports('untagged')
-        tagged_ingress = vlan.get_ingress_ports('tagged')
         for p_name in untagged_ingress:
             if p_name not in untagged_egress and p_name not in tagged_egress:
                 err.append('NOTICE: Port "' + str(p_name) + '" has PVID of 1, '
@@ -225,7 +228,7 @@ class XosConfigWriter(Switch.ConfigWriter):
             v_name = None
             vlan.set_name(v_name)
         if v_name and ' ' in v_name:
-            err.append('WARN: Replacing " " with "_" in VLAN name "' +
+            err.append('NOTICE: Replaced " " with "_" in VLAN name "' +
                        v_name + '"')
             v_name = v_name.replace(' ', '_')
             vlan.set_name(v_name)
@@ -285,7 +288,7 @@ class XosConfigWriter(Switch.ConfigWriter):
 
     def _handle_default_vlan(self, vlan):
         conf, err = [], []
-        v_name, v_tag = vlan.get_name(), vlan.get_tag()
+        v_name = vlan.get_name()
         u_list = vlan.get_egress_ports('untagged')
         t_list = vlan.get_egress_ports('tagged')
         all_ports = self._switch.get_ports()
@@ -299,8 +302,8 @@ class XosConfigWriter(Switch.ConfigWriter):
         else:
             del_seq = ''
         if del_seq:
-            conf.append('configure vlan ' + v_name + ' delete ports '
-                        + del_seq)
+            conf.append('configure vlan ' + v_name + ' delete ports ' +
+                        del_seq)
         if t_list:
             t_seq = Utils.create_compact_sequence(t_list)
             if not t_seq:
@@ -317,7 +320,7 @@ class XosConfigWriter(Switch.ConfigWriter):
         v_name, v_tag = vlan.get_name(), vlan.get_tag()
         if not v_name:
             if v_tag:
-                v_name = 'SYS_NLD_' + '{:04d}'.format(v_tag)
+                v_name = 'VLAN_' + '{:04d}'.format(v_tag)
                 vlan.set_name(v_name, 'generated')
         cmd = 'create vlan ' + v_name
         if v_tag:
@@ -347,6 +350,10 @@ class XosConfigWriter(Switch.ConfigWriter):
 
     def vlan(self):
         conf, err = [], []
+        notified_about_global_bootprelay = False
+        need_bootprelay_enable = False
+        ipv4_routing = self._switch.get_ipv4_routing()
+        self._switch.set_ipv4_routing(ipv4_routing, 'written')
         non_master_lag_ports = self._get_all_non_master_lag_ports()
         vlan_list = self._switch.get_all_vlans()
         for vlan in vlan_list:
@@ -364,7 +371,9 @@ class XosConfigWriter(Switch.ConfigWriter):
             err.extend(e)
             ipv4_acl_in_lst = vlan.get_ipv4_acl_in()
             if len(ipv4_acl_in_lst) > 1:
-                err.append('ERROR: Only one ACL per VLAN possible with EXOS')
+                err.append('ERROR: Only one ACL per VLAN possible with EXOS' +
+                           ' (VLAN "' + vlan.get_name() + '", tag ' +
+                           str(vlan.get_tag()) + ')')
                 ipv4_acl_in = None
             elif ipv4_acl_in_lst:
                 ipv4_acl_in = ipv4_acl_in_lst[0]
@@ -375,6 +384,36 @@ class XosConfigWriter(Switch.ConfigWriter):
             if ipv4_acl_in:
                 conf.append('configure access-list ' + ipv4_acl_in + ' vlan ' +
                             vlan.get_name() + ' ingress')
+            ipv4_addresses = vlan.get_ipv4_addresses()
+            for (idx, ipv4_addr) in enumerate(ipv4_addresses):
+                if idx == 0:
+                    conf.append('configure vlan ' + vlan.get_name() +
+                                ' ipaddress ' + ipv4_addr[0] + ' ' +
+                                ipv4_addr[1])
+                    if ipv4_routing:
+                        conf.append('enable ipforwarding vlan ' +
+                                    vlan.get_name())
+                else:
+                    conf.append('configure vlan ' + vlan.get_name() + ' add '
+                                'secondary-ipaddress ' + ipv4_addr[0] + ' ' +
+                                ipv4_addr[1])
+            if vlan.get_svi_shutdown() is True:
+                err.append('WARN: EXOS cannot disable switched virtual '
+                           'interfaces, ignoring shutdown state of interface '
+                           'VLAN ' + str(vlan.get_tag()))
+            for dhcp_relay in vlan.get_ipv4_helper_addresses():
+                need_bootprelay_enable = True
+                c = 'configure bootprelay add ' + dhcp_relay
+                if c not in conf:
+                    conf.append(c)
+                if not notified_about_global_bootprelay:
+                    err.append('NOTICE: EXOS uses a global list of BOOTP / '
+                               'DHCP relay servers instead of per VLAN relay '
+                               'servers')
+                    notified_about_global_bootprelay = True
+        if need_bootprelay_enable:
+            conf.append('enable bootprelay all')
+            err.append('NOTICE: enabling BOOTP / DHCP relay on all VLANs')
         errors = self._verify_untagged_ports()
         err.extend(errors)
         return conf, err
@@ -418,7 +457,6 @@ class XosConfigWriter(Switch.ConfigWriter):
 
     def lag(self):
         conf, err = [], []
-        reason = 'written'
         if not self._switch.get_single_port_lag():
             if self._switch.get_single_port_lag_reason() == 'transfer_conf':
                 err.append('ERROR: XOS always allows single port LAGs')
@@ -730,9 +768,9 @@ class XosConfigWriter(Switch.ConfigWriter):
                     match_lst.append('protocol ' + match_proto)
                 match_source = ace.get_source()
                 match_source_mask = ace.get_source_mask_inverted()
-                if (match_source and match_source_mask and
-                        (str(match_source) != '0.0.0.0' or
-                         str(match_source_mask) != '0.0.0.0')):
+                if match_source and match_source_mask:
+                    if str(match_source_mask) == '0.0.0.0':
+                        match_source_mask = '0'
                     match_lst.append('source-address ' + str(match_source) +
                                      '/' + str(match_source_mask))
                 match_source_op = ace.get_source_op()
@@ -747,9 +785,9 @@ class XosConfigWriter(Switch.ConfigWriter):
 
                 match_dest = ace.get_dest()
                 match_dest_mask = ace.get_dest_mask_inverted()
-                if (match_dest and match_dest_mask and
-                        (str(match_dest) != '0.0.0.0' or
-                         str(match_dest_mask) != '0.0.0.0')):
+                if match_dest and match_dest_mask:
+                    if str(match_dest_mask) == '0.0.0.0':
+                        match_dest_mask = '0'
                     match_lst.append('destination-address ' + str(match_dest) +
                                      '/' + str(match_dest_mask))
                 match_dest_op = ace.get_dest_op()
@@ -778,9 +816,388 @@ class XosConfigWriter(Switch.ConfigWriter):
                 ace_str = self._switch.get_cmd().get_comment()[0]
                 ace_str += ' next entry added to match EOS ACL implicit deny\n'
                 ace_str += ('entry ' + str(ace_nr) +
-                            ' {\n  if {\n  } then {\n    deny;\n  }\n}\n')
+                            ' {\n  if {\n    source-address 0.0.0.0/0;\n'
+                            '  } then {\n    deny;\n  }\n}\n')
                 acl_lst.append(ace_str)
             conf.append(acl_lst)
+        return conf, err
+
+    def mgmt(self):
+        conf, err = [], []
+        # snmp sysName (from EOS prompt or system name)
+        prompt = self._switch.get_prompt()
+        sysname = self._switch.get_snmp_sys_name()
+        if prompt and sysname:
+            if prompt != sysname:
+                err.append('WARN: The EXOS prompt is derived from the snmp '
+                           'system name, ignoring the configured prompt')
+            self._switch.set_prompt(prompt, 'written')
+            prompt = None
+        if not sysname and prompt:
+            sysname = prompt
+            self._switch.set_prompt(prompt, 'written')
+        if sysname:
+            sname = self._replace_special_characters(sysname, allow_space=True)
+            if sname != sysname:
+                err.append('WARN: Changed sysName from "' + str(sysname) +
+                           '" to "' + str(sname) + '"')
+            conf.append('configure snmp sysName "' + str(sname) + '"')
+            self._switch.set_snmp_sys_name(sname, 'written')
+        # system contact
+        syscontact = self._switch.get_snmp_sys_contact()
+        if syscontact:
+            scontact = self._replace_special_characters(syscontact,
+                                                        allow_space=True)
+            if scontact != syscontact:
+                err.append('WARN: Changed syscontact from "' +
+                           str(syscontact) + '" to "' + str(scontact) + '"')
+            conf.append('configure snmp sysContact "' + str(scontact) + '"')
+            self._switch.set_snmp_sys_contact(scontact, 'written')
+        # system location
+        syslocation = self._switch.get_snmp_sys_location()
+        if syslocation:
+            slocation = self._replace_special_characters(syslocation,
+                                                         allow_space=True)
+            if slocation != syslocation:
+                err.append('WARN: Changed syslocation from "' +
+                           str(syslocation) + '" to "' + str(slocation) + '"')
+            conf.append('configure snmp sysLocation "' + str(slocation) + '"')
+            self._switch.set_snmp_sys_location(slocation, 'written')
+        # login banner
+        banner_login = self._switch.get_banner_login()
+        if banner_login:
+            banner_lines = banner_login.replace('\\n', '\n').split('\n')
+            if '' in banner_lines:
+                err.append('WARN: EXOS banner cannot contain empty lines, '
+                           'omitting empty lines')
+                banner_lines = [l for l in banner_lines if l]
+            conf_line = 'configure banner before-login'
+            login_ack = self._switch.get_banner_login_ack()
+            if login_ack:
+                conf_line += ' acknowledge'
+                banner_lines.append('Press RETURN to proceed to login')
+            conf_line += ' save-to-configuration'
+            conf.append(conf_line)
+            conf.extend(banner_lines)
+            # empty line signals end of banner
+            conf.append('')
+            self._switch.set_banner_login(banner_login, 'written')
+            self._switch.set_banner_login_ack(login_ack, 'written')
+        # MOTD banner
+        banner_motd = self._switch.get_banner_motd()
+        if banner_motd:
+            banner_lines = banner_motd.replace('\\n', '\n').split('\n')
+            if '' in banner_lines:
+                err.append('WARN: EXOS banner cannot contain empty lines, '
+                           'omitting empty lines')
+                banner_lines = [l for l in banner_lines if l]
+            conf_line = 'configure banner after-login'
+            conf.append(conf_line)
+            conf.extend(banner_lines)
+            # empty line signals end of banner
+            conf.append('')
+            self._switch.set_banner_motd(banner_motd, 'written')
+        # telnet
+        telnet_in = self._switch.get_telnet_inbound()
+        telnet_in_reason = self._switch.get_telnet_inbound_reason()
+        telnet_out = self._switch.get_telnet_outbound()
+        telnet_out_reason = self._switch.get_telnet_outbound_reason()
+        if telnet_in is not None and not telnet_in:
+            conf.append('disable telnet')
+        elif telnet_in_reason and telnet_in_reason.startswith('transfer'):
+            conf.append('enable telnet')
+        if telnet_out is not None and not telnet_out:
+            err.append('WARN: Outbound telnet cannot be disabled on EXOS')
+        elif telnet_out_reason and telnet_out_reason.startswith('transfer'):
+            err.append('INFO: Outbound telnet is always enabled on EXOS')
+        self._switch.set_telnet_inbound(telnet_in, 'written')
+        self._switch.set_telnet_outbound(telnet_out, 'written')
+        # ssh
+        ssh_in = self._switch.get_ssh_inbound()
+        ssh_in_reason = self._switch.get_ssh_inbound_reason()
+        ssh_out = self._switch.get_ssh_outbound()
+        ssh_out_reason = self._switch.get_ssh_outbound_reason()
+        ssh_xmod_notice_added = None
+        ssh_xmod_notice = ('NOTICE: ssh.xmod needs to be installed for SSH' +
+                           ' commands to work')
+        if ssh_in is not None and ssh_in_reason.startswith('transfer'):
+            if not ssh_in:
+                conf.append('disable ssh2')
+            else:
+                conf.append('configure ssh2 key')
+                conf.append('enable ssh2')
+                err.append(ssh_xmod_notice)
+                ssh_xmod_notice_added = True
+        if ssh_out is not None and not ssh_out:
+            err.append('WARN: Outbound ssh cannot be disabled on EXOS')
+        elif ssh_out_reason and ssh_out_reason.startswith('transfer'):
+            if not ssh_xmod_notice_added:
+                err.append('NOTICE: ssh.xmod needs to be installed for SSH')
+            err.append(ssh_xmod_notice)
+        self._switch.set_ssh_inbound(ssh_in, 'written')
+        self._switch.set_ssh_outbound(ssh_out, 'written')
+        # HTTP/HTTPS
+        ssl = self._switch.get_ssl()
+        http = self._switch.get_http()
+        http_reason = self._switch.get_http_reason()
+        https = self._switch.get_http_secure()
+        if http_reason is not None and http_reason.startswith('transfer'):
+            if http:
+                conf.append('enable web http')
+            else:
+                conf.append('disable web http')
+        if https and ssl:
+            conf.append('enable web https')
+            err.append('NOTICE: ssh.xmod needs to be installed for HTTPS')
+            err.append('NOTICE: You need to manually create a certificate for'
+                       ' HTTPS to work (configure ssl certificate)')
+        if not https and ssl:
+            err.append('WARN: SSL cannot be enabled independently from ' +
+                       'HTTPS on EXOS')
+        self._switch.set_ssl(ssl, 'written')
+        self._switch.set_http(http, 'written')
+        self._switch.set_http_secure(https, 'written')
+        # management ip, vlan, protocol
+        mgmt_ip = self._switch.get_mgmt_ip()
+        mgmt_mask = self._switch.get_mgmt_mask()
+        mgmt_gw = self._switch.get_mgmt_gw()
+        mgmt_vlan = self._switch.get_mgmt_vlan()
+        mgmt_proto = self._switch.get_mgmt_protocol()
+        oob = self._switch.uses_oob_mgmt()
+        # determine the management VLAN
+        if oob:
+            if mgmt_vlan != 'Mgmt' and mgmt_vlan != 1:
+                err.append('NOTICE: using OOB management port, overwriting'
+                           'configured VLAN "' + str(mgmt_vlan) + '"')
+            mgmt_vlan = 'Mgmt'
+        if mgmt_ip and not mgmt_vlan:
+            err.append('ERROR: cannot configure management IP without VLAN')
+        mvn = None
+        if mgmt_vlan:
+            try:
+                mvt = int(mgmt_vlan)
+                mvn = self._switch.get_vlan(tag=mvt).get_name()
+            except:
+                try:
+                    mvn = self._switch.get_vlan(name=mgmt_vlan).get_name()
+                except:
+                    pass
+            # Mgmt VLAN is lost during VLAN transfer, but cannot be deleted
+            if mvn is None and not mgmt_vlan == 'Mgmt':
+                err.append('ERROR: management VLAN "' + str(mgmt_vlan) +
+                           '" does not exist')
+            elif mgmt_vlan == 'Mgmt':
+                mvn = mgmt_vlan
+        # check if the mgmt VLAN has other IPs configured
+        vlan_clash = False
+        mgmt_vlan_object = self._switch.get_vlan(name=mvn)
+        if mgmt_vlan_object and mgmt_vlan_object.get_ipv4_addresses():
+            vlan_clash = True
+        # configure management VLAN IP
+        if vlan_clash:
+            err.append('ERROR: Both SVI and host management IP configured'
+                       ' for the same VLAN (' + mvn + ')')
+        elif mvn and (not mgmt_proto or mgmt_proto == 'none'):
+            if mgmt_ip and mgmt_mask:
+                conf.append('configure vlan ' + mvn + ' ipaddress ' +
+                            str(mgmt_ip) + ' ' + str(mgmt_mask))
+                self._switch.set_mgmt_ip(mgmt_ip, 'written')
+                self._switch.set_mgmt_mask(mgmt_mask, 'written')
+                self._switch.set_mgmt_vlan(mvn, 'written')
+                self._switch.set_mgmt_protocol(mgmt_proto, 'written')
+        elif mvn and mgmt_proto:
+            if mgmt_proto == 'bootp':
+                conf.append('enable bootp vlan ' + mvn)
+                self._switch.set_mgmt_protocol(mgmt_proto, 'written')
+            elif mgmt_proto == 'dhcp':
+                conf.append('enable dhcp vlan ' + mvn)
+                self._switch.set_mgmt_protocol(mgmt_proto, 'written')
+        # configure management default gateway
+        if mgmt_gw and not vlan_clash:
+            c = 'configure iproute add default ' + str(mgmt_gw)
+            if oob:
+                c += ' vr VR-Mgmt'
+            conf.append(c)
+            self._switch.set_mgmt_gw(mgmt_gw, 'written')
+        # idle timeout
+        timeout = self._switch.get_idle_timer()
+        to_reason = self._switch.get_idle_timer_reason()
+        if to_reason is not None and to_reason.startswith('transfer'):
+            if timeout == 0:
+                conf.append('disable idletimeout')
+            elif timeout:
+                conf.append('configure idletimeout ' + str(timeout))
+            self._switch.set_idle_timer(timeout, 'written')
+        # syslog servers
+        for idx, sls in self._switch.get_all_syslog_servers().items():
+            severity_level_mapping = {
+                '1': 'critical',
+                '2': 'critical',
+                '3': 'critical',
+                '4': 'error',
+                '5': 'warning',
+                '6': 'notice',
+                '7': 'info',
+                '8': 'debug-data',
+            }
+            xos_severities = {
+                "critical", "debug-data", "debug-summary", "debug-verbose",
+                "error", "info", "notice", "warning",
+            }
+            description = sls.get_description()
+            facility = sls.get_facility()
+            ip = sls.get_ip()
+            port = sls.get_port()
+            severity = sls.get_severity()
+            state = sls.get_state()
+            # EXOS needs at least an IP and a facility
+            if ip is None:
+                err.append('ERROR: A SysLog target on EXOS needs an IP address'
+                           ' (set logging server ' + str(idx) + ' ...)')
+                continue
+            if facility is None:
+                facility = sls.get_default_facility()
+            if facility is None:
+                err.append('ERROR: A SysLog target on EXOS needs a facility'
+                           ' (set logging server ' + str(idx) + ' ...)')
+                continue
+            if facility not in {"local0", "local1", "local2", "local3",
+                                "local4", "local5", "local6", "local7"}:
+                err.append('ERROR: SysLog facility "' + facility + '" is not'
+                           'supported on EXOS (set logging server ' +
+                           str(idx) + ' ...)')
+                continue
+            # try to fill in some (optional) defaults
+            if port is None:
+                port = sls.get_default_port()
+            if severity is None:
+                severity = sls.get_default_severity()
+            # translate EOS severity number to EXOS name
+            if severity is not None and severity not in xos_severities:
+                severity = severity_level_mapping[severity]
+            c = 'configure syslog add ' + str(ip)
+            if port:
+                c += ':' + str(port)
+            if oob:
+                c += ' vr VR-Mgmt'
+            c += ' ' + facility
+            conf.append(c)
+            if severity in xos_severities:
+                c = 'configure log target syslog ' + str(ip)
+                if port:
+                    c += ':' + str(port)
+                c += ' '
+                if oob:
+                    c += 'vr VR-Mgmt '
+                c += facility + ' severity ' + severity
+                conf.append(c)
+            elif severity is not None:
+                err.append('WARN: Ignoring unknown SysLog severity "' +
+                           str(severity) + '" (set logging server ' +
+                           str(idx) + ' ...)')
+            if state == 'enable':
+                c = 'enable log target syslog ' + str(ip)
+                if port:
+                    c += ':' + str(port)
+                if oob:
+                    c += ' vr VR-Mgmt'
+                c += ' ' + facility
+                conf.append(c)
+            # tell about ignoring the description
+            if description:
+                err.append('NOTICE: EXOS cannot add descriptions to SysLog'
+                           ' servers (set logging server ' + str(idx) + ')')
+            sls.set_is_written(True)
+        # SNTP Server
+        sntp_server_list = self._switch.get_all_sntp_servers()
+        for sntp in sntp_server_list:
+            if sntp.get_precedence() is None:
+                if sntp.get_default_precedence() is not None:
+                    sntp.set_precedence(sntp.get_default_precedence())
+                else:
+                    sntp.set_precedence(2**32)
+
+        def _sntp_srv_prec(s):
+            return s.get_precedence()
+
+        sntp_server_list.sort(key=_sntp_srv_prec)
+        if len(sntp_server_list) > 0:
+            c = ('configure sntp-client primary ' +
+                 str(sntp_server_list[0].get_ip()))
+            if oob:
+                c += ' vr VR-Mgmt'
+            conf.append(c)
+            sntp_server_list[0].set_is_written(True)
+        if len(sntp_server_list) > 1:
+            c = ('configure sntp-client secondary ' +
+                 str(sntp_server_list[1].get_ip()))
+            if oob:
+                c += ' vr VR-Mgmt'
+            conf.append(c)
+            sntp_server_list[1].set_is_written(True)
+        if len(sntp_server_list) > 2:
+            err.append('ERROR: EXOS supports at most two SNTP servers')
+        # SNTP Client
+        sntp_client = self._switch.get_sntp_client()
+        if sntp_client == 'unicast':
+            if not sntp_server_list:
+                err.append('ERROR: At least one SNTP server needed for unicast'
+                           ' SNTP client')
+            else:
+                conf.append('enable sntp-client')
+                self._switch.set_sntp_client(sntp_client, 'written')
+        elif sntp_client == 'broadcast':
+            if sntp_server_list:
+                err.append('WARN: EXOS uses unicast SNTP if an SNTP server is'
+                           ' configured')
+            conf.append('enable sntp-client')
+            self._switch.set_sntp_client(sntp_client, 'written')
+        elif sntp_client == 'disable':
+            if not self._switch.get_sntp_client_reason() == 'default':
+                conf.append('disable sntp-client')
+                self._switch.set_sntp_client(sntp_client, 'written')
+        # return configuration and errors
+        return conf, err
+
+    def basic_layer_3(self):
+        conf, err = [], []
+        ipv4_routing = self._switch.get_ipv4_routing()
+        self._switch.set_ipv4_routing(ipv4_routing, 'written')
+        # SVI IPv4 addresses are implemented in method vlan()
+        # Loopback Interfaces
+        for lo in self._switch.get_all_loopbacks():
+            vlan_name = 'Interface_Loopback_' + str(lo.get_number())
+            if self._switch.get_vlan(name=vlan_name) is not None:
+                err.append('ERROR: Cannot create VLAN "' + vlan_name + '" '
+                           'for interface Loopback ' + str(lo.get_number()) +
+                           ' because it already exists')
+                continue
+            conf.append('create vlan ' + vlan_name)
+            conf.append('enable loopback-mode vlan ' + vlan_name)
+
+            ipv4_addresses = lo.get_ipv4_addresses()
+            for (idx, ipv4_addr) in enumerate(ipv4_addresses):
+                if idx == 0:
+                    conf.append('configure vlan ' + vlan_name +
+                                ' ipaddress ' + ipv4_addr[0] + ' ' +
+                                ipv4_addr[1])
+                    if ipv4_routing:
+                        conf.append('enable ipforwarding vlan ' + vlan_name)
+                else:
+                    conf.append('configure vlan ' + vlan_name + ' add '
+                                'secondary-ipaddress ' + ipv4_addr[0] + ' ' +
+                                ipv4_addr[1])
+            if lo.get_svi_shutdown() is True:
+                err.append('WARN: EXOS cannot disable switched virtual '
+                           'interfaces, ignoring shutdown state of interface '
+                           'Loopback ' + str(lo.get_number()))
+        # IPv4 routes need to come after VLAN IPv4 addresses
+        for route in sorted(self._switch.get_all_ipv4_static_routes()):
+            if route[0] == '0.0.0.0' and route[1] == '0.0.0.0':
+                conf.append('configure iproute add default ' + route[2])
+            else:
+                conf.append('configure iproute add ' + route[0] + ' ' +
+                            route[1] + ' ' + route[2])
         return conf, err
 
 # vim:filetype=python:expandtab:shiftwidth=4:tabstop=4

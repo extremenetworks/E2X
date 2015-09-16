@@ -1,4 +1,4 @@
-SOURCES := $(wildcard src/*.py) src/shebang
+SOURCES := $(wildcard src/*.py) src/shebang src/InteractiveModeCommandList.py
 BINARY := e2x.py
 LICENSE := LICENSE.txt
 VERSION := $(shell sed -n "s/^progver = '\([^']*\)'$$/\1/p" src/cli.py)
@@ -25,6 +25,14 @@ $(BINARY): $(ZIP) src/shebang
 $(ZIP): $(SOURCES) Makefile
 	zip -j $@ $(SOURCES)
 
+src/InteractiveModeCommandList.py:
+	sed '1,/## Function Module Interactive/d;/^## .*$$/d' \
+		docs/ReleaseNotes.md | \
+		sed '1,/### Commands/d;s/^ *//;/^ *$$/d' | \
+		sed '1s/^/\nINT_MODE_CMD_LST = """\n/;$$s/$$/\n"""/' | \
+		sed '1s/^/\n# FILE IS GENERATED, DO NOT EDIT\n/' | \
+		cat templates/e2x_python_file - > $@
+
 src-dist: $(DIST)
 
 $(DIST): $(SOURCES) $(TESTS) $(RUNTESTS) $(RUNTESTS_WIN) \
@@ -50,17 +58,18 @@ check: $(BINARY)
 	-$(RUNTESTS)
 	$(PYTHON) $(INTEGRATIONTEST) $(BINARY)
 
-%.html : %.md
-	pandoc -f markdown -t html -o $@ $<
+%.html : %.md Makefile
+	sed 's/\.md)/.html)/g' $< | pandoc -f markdown -t html -o $@
 
 html: $(HTMLDOCS) Makefile
 
 clean:
-	$(RM) -r $(BINARY) $(PREVIEW) $(HTMLDOCS)
+	$(RM) -r $(BINARY) $(PREVIEW) $(HTMLDOCS) \
+		src/InteractiveModeCommandList.py
 
 distclean: clean
 	$(RM) -r __pycache__ src/__pycache__ tests/scripttest/__pycache__ \
-	$(wildcard src/*.pyc)
+		$(wildcard src/*.pyc)
 
-.PHONY: clean distclean check
+.PHONY: clean distclean check src/InteractiveModeCommandList.py
 .INTERMEDIATE: $(ZIP)

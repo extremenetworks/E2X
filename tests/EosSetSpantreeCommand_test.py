@@ -183,7 +183,6 @@ class EosSetSpantreeCommand_test(unittest.TestCase):
         self.assertEqual(expected, result)
 
     def test_do_mstmap_fail_fid_out_of_bounds(self):
-        fid_lowest, fid_highest = 1, 4094
         errStr = self.ErrorStart + 'Illegal FID "{}"'
         fid_sequence = '0'
         arg = fid_sequence + ' sid 1'
@@ -291,7 +290,7 @@ class EosSetSpantreeCommand_test(unittest.TestCase):
         self.assertEqual(expected, result)
 
     def test_do_priority_fail_stp_set_priority_fails(self):
-        prio, sid = '1', '1'
+        prio = '1'
         arg = prio + ' 1'
         self.mockSwitch.get_stps.return_value = [self.mockStp]
         self.mockSwitch.get_stp_by_mst_instance.return_value = self.mockStp
@@ -304,7 +303,7 @@ class EosSetSpantreeCommand_test(unittest.TestCase):
         self.assertEqual(expected, result)
 
     def test_do_priority_ok(self):
-        prio, sid = '1', '1'
+        prio = '1'
         arg = prio + ' 1'
         self.mockSwitch.get_stps.return_value = [self.mockStp]
         self.mockSwitch.get_stp_by_mst_instance.return_value = self.mockStp

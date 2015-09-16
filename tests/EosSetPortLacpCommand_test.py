@@ -182,8 +182,6 @@ class EosSetPortLacpCommand_test(unittest.TestCase):
         self.mockPort1.set_lacp_aadminkey.assert_called_once_with(key, reason)
 
     def test_do_port_subcmd_enable_fail_lacp_port(self):
-        enabled = True
-        reason = 'config'
         portName, cmd = 'lag.0.1', 'enable'
         portnameLst = [portName]
         self.mockPort1.get_name.return_value = 'lag.0.1'

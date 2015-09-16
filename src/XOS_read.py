@@ -27,8 +27,6 @@
 
 """XOS_read provides the comment character for EXOS."""
 
-import cmd
-
 import Switch
 
 

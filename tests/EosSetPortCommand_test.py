@@ -34,7 +34,6 @@ from unittest.mock import Mock, call
 
 from Switch import Switch
 from Port import Port
-import VLAN
 from VLAN import VLAN
 
 import EOS_read

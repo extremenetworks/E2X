@@ -110,7 +110,7 @@ class EosIpCommand_test(unittest.TestCase):
         result = self.cmd._do_access_group('1')
 
         self.assertIn('ERROR', result)
-        self.assertIn('integer', result)
+        self.assertIn('parse error', result)
 
     def test_do_access_group_InterfaceVlanNrOutOfRange(self):
         lower_boundary, upper_boundary = 1, 4095

@@ -36,8 +36,8 @@ expand_sequence_to_int_list(sequence) expands a sequence of integers given as
 a string into a list.
 create_compact_sequence(lst) creates a sequence string from a list of integers.
 create_sequence(lst) creates a sequence string from a list.
-words_to_lower(lines, words) converts every instance of words found in lines
-to lower case.
+words_to_lower(lines, words, comments) converts every instance of words found
+in lines to lower case.
 """
 
 import re
@@ -167,7 +167,7 @@ def create_compact_sequence(lst):
     except:
         return ''
     ret = ''
-    last_port = None
+    last_port, last_slot = None, None
     in_range = False
     name_format = None
     for i in lst:
@@ -301,6 +301,7 @@ def words_to_lower(lines, words, comments):
     """Convert all words found in lines to lower case.
 
     Quoted (using double quotes) or comment strings are kept unchanged.
+    Unquoted words in a line are separated by a single space.
 
     >>> words_to_lower(['FOO BAR BAZ'], {'foo', 'baz'}, '')
     ['foo BAR baz']
@@ -354,6 +355,11 @@ def words_to_lower(lines, words, comments):
     ['set system contact "Switch 1']
     >>> words_to_lower('set system contact "Switch 1', {'switch'}, [])
     ['set system contact "Switch 1']
+    >>> words_to_lower("seT  logginG seRvEr 1 deScr 'Beschreibung 2'",\
+                       {'set', 'logging', 'server', 'descr'}, ['!', '#'])
+    ["set logging server 1 descr 'Beschreibung 2'"]
+    >>> words_to_lower('foo     bar', set(), [])
+    ['foo bar']
     """
 
     result = []

@@ -39,7 +39,8 @@ class Translation_test(unittest.TestCase):
         self.cm = CM.CoreModule()
         self.acl_deny_any = (
             '# next entry added to match EOS ACL implicit deny\n'
-            'entry 20 {\n  if {\n  } then {\n    deny;\n  }\n}\n')
+            'entry 20 {\n  if {\n    source-address 0.0.0.0/0;\n  }'
+            ' then {\n    deny;\n  }\n}\n')
 
     def test_translate_fails_because_of_missing_feature_module(self):
         cmd = 'set snmp group company security-model v1'
@@ -130,7 +131,10 @@ class Translation_test(unittest.TestCase):
         self.cm.set_source_switch('C5K125-48P2')
         self.cm.set_target_switch('SummitX460-48p+2xf')
         translatedList, err = self.cm.translate(translateList)
+        errList = [e for e in err if e.startswith('WARN') or
+                   e.startswith('ERROR')]
         self.assertNotIn(unexpected, translatedList)
+        self.assertEqual(expected, errList)
 
     def test_translate_two_commands_ok(self):
         translateList = ['set port disable ge.1.1',
@@ -195,7 +199,7 @@ class Translation_test(unittest.TestCase):
     def test_translate_vlan_create_tag_only_ok(self):
         translateList = ['set vlan create 2',
                          ]
-        expected = ['create vlan SYS_NLD_0002 tag 2',
+        expected = ['create vlan VLAN_0002 tag 2',
                     ]
         self.cm.set_source_switch('C5K125-48P2')
         self.cm.set_target_switch('SummitX460-48p+2sf')
@@ -206,14 +210,14 @@ class Translation_test(unittest.TestCase):
     def test_translate_vlan_create_many_tag_only_ok(self):
         translateList = ['set vlan create 2,5,10-13,100,2001',
                          ]
-        expected = ['create vlan SYS_NLD_0002 tag 2',
-                    'create vlan SYS_NLD_0005 tag 5',
-                    'create vlan SYS_NLD_0010 tag 10',
-                    'create vlan SYS_NLD_0011 tag 11',
-                    'create vlan SYS_NLD_0012 tag 12',
-                    'create vlan SYS_NLD_0013 tag 13',
-                    'create vlan SYS_NLD_0100 tag 100',
-                    'create vlan SYS_NLD_2001 tag 2001',
+        expected = ['create vlan VLAN_0002 tag 2',
+                    'create vlan VLAN_0005 tag 5',
+                    'create vlan VLAN_0010 tag 10',
+                    'create vlan VLAN_0011 tag 11',
+                    'create vlan VLAN_0012 tag 12',
+                    'create vlan VLAN_0013 tag 13',
+                    'create vlan VLAN_0100 tag 100',
+                    'create vlan VLAN_2001 tag 2001',
                     ]
         self.cm.set_source_switch('C5K125-48P2')
         self.cm.set_target_switch('SummitX460-48p+2sf')
@@ -237,7 +241,7 @@ class Translation_test(unittest.TestCase):
         translateList = ['set vlan create 2',
                          'set vlan name 2 ""',
                          ]
-        expected = ['create vlan SYS_NLD_0002 tag 2',
+        expected = ['create vlan VLAN_0002 tag 2',
                     ]
         self.cm.set_source_switch('C5K125-48P2')
         self.cm.set_target_switch('SummitX460-48p+2sf')
@@ -353,7 +357,7 @@ class Translation_test(unittest.TestCase):
                          'set port vlan ge.1.1 2',
                          ]
         expected = ('ERROR: Port "1" has multiple untagged egress VLANs: '
-                    "('Default', 1) ('SYS_NLD_0002', 2)")
+                    "('Default', 1) ('VLAN_0002', 2)")
         self.cm.set_source_switch('C5K125-48P2')
         self.cm.set_target_switch('SummitX460-48p+2sf')
         self.maxDiff = None
@@ -365,7 +369,7 @@ class Translation_test(unittest.TestCase):
                          'set vlan egress 2 ge.1.1 untagged',
                          ]
         expected = ('ERROR: Port "1" has multiple untagged egress VLANs: '
-                    "('Default', 1) ('SYS_NLD_0002', 2)")
+                    "('Default', 1) ('VLAN_0002', 2)")
         self.cm.set_source_switch('C5K125-48P2')
         self.cm.set_target_switch('SummitX460-48p+2sf')
         self.maxDiff = None
@@ -581,26 +585,26 @@ class Translation_test(unittest.TestCase):
             'configure vlan UNUSED_PORTS add ports 19-20 untagged',
             'create vlan NATIVE tag 1000',
             'configure vlan NATIVE add ports 21,23 untagged',
-            'create vlan SYS_NLD_3001 tag 3001',
-            'configure vlan SYS_NLD_3001 add ports 21,23 tagged',
-            'create vlan SYS_NLD_3002 tag 3002',
-            'configure vlan SYS_NLD_3002 add ports 21,23 tagged',
-            'create vlan SYS_NLD_3003 tag 3003',
-            'configure vlan SYS_NLD_3003 add ports 21,23 tagged',
-            'create vlan SYS_NLD_3004 tag 3004',
-            'configure vlan SYS_NLD_3004 add ports 21,23 tagged',
-            'create vlan SYS_NLD_3005 tag 3005',
-            'configure vlan SYS_NLD_3005 add ports 21,23 tagged',
-            'create vlan SYS_NLD_3006 tag 3006',
-            'configure vlan SYS_NLD_3006 add ports 21,23 tagged',
-            'create vlan SYS_NLD_3007 tag 3007',
-            'configure vlan SYS_NLD_3007 add ports 21,23 tagged',
-            'create vlan SYS_NLD_3008 tag 3008',
-            'configure vlan SYS_NLD_3008 add ports 21,23 tagged',
-            'create vlan SYS_NLD_3009 tag 3009',
-            'configure vlan SYS_NLD_3009 add ports 21,23 tagged',
-            'create vlan SYS_NLD_3010 tag 3010',
-            'configure vlan SYS_NLD_3010 add ports 21,23 tagged']
+            'create vlan VLAN_3001 tag 3001',
+            'configure vlan VLAN_3001 add ports 21,23 tagged',
+            'create vlan VLAN_3002 tag 3002',
+            'configure vlan VLAN_3002 add ports 21,23 tagged',
+            'create vlan VLAN_3003 tag 3003',
+            'configure vlan VLAN_3003 add ports 21,23 tagged',
+            'create vlan VLAN_3004 tag 3004',
+            'configure vlan VLAN_3004 add ports 21,23 tagged',
+            'create vlan VLAN_3005 tag 3005',
+            'configure vlan VLAN_3005 add ports 21,23 tagged',
+            'create vlan VLAN_3006 tag 3006',
+            'configure vlan VLAN_3006 add ports 21,23 tagged',
+            'create vlan VLAN_3007 tag 3007',
+            'configure vlan VLAN_3007 add ports 21,23 tagged',
+            'create vlan VLAN_3008 tag 3008',
+            'configure vlan VLAN_3008 add ports 21,23 tagged',
+            'create vlan VLAN_3009 tag 3009',
+            'configure vlan VLAN_3009 add ports 21,23 tagged',
+            'create vlan VLAN_3010 tag 3010',
+            'configure vlan VLAN_3010 add ports 21,23 tagged']
         self.cm.set_source_switch('C5K125-48P2')
         self.cm.set_target_switch('SummitX460-48p+2sf')
         translatedList, err = self.cm.translate(translateList)
@@ -651,6 +655,7 @@ class Translation_test(unittest.TestCase):
                          'exit', 'exit', 'exit']
         expected = [['acl_100', 'entry 10 {\n  if {\n    protocol tcp;'
                      '\n    source-address 192.0.2.0/255.255.255.0;'
+                     '\n    destination-address 0.0.0.0/0;'
                      '\n  } then {\n    permit;\n  }\n}\n',
                      self.acl_deny_any]]
         self.cm.set_source_switch('C5K125-48P2')
@@ -815,6 +820,58 @@ class Translation_test(unittest.TestCase):
         translatedList, err = self.cm.translate(translateList)
         for exp in expected:
             self.assertIn(exp, translatedList)
+
+    def test_translate_disable_telnet_all_ok(self):
+        translateList = ['Set Telnet Disable All']
+        expected = ['disable telnet']
+        self.cm.set_source_switch('C5K125-48P2')
+        self.cm.set_target_switch('SummitX460-48p+2sf')
+        translatedList, err = self.cm.translate(translateList)
+        for exp in expected:
+            self.assertIn(exp, translatedList)
+
+    def test_translate_enable_telnet_all_ok(self):
+        translateList = ['Set Telnet Enable All']
+        expected = ['enable telnet']
+        self.cm.disable_defaults()
+        self.cm.set_source_switch('C5K125-48P2')
+        self.cm.set_target_switch('SummitX460-48p+2sf')
+        translatedList, err = self.cm.translate(translateList)
+        for exp in expected:
+            self.assertIn(exp, translatedList)
+
+    def test_translate_disable_telnet_inbound_ok(self):
+        translateList = ['Set Telnet Disable Inbound']
+        expected = ['disable telnet']
+        self.cm.set_source_switch('C5K125-48P2')
+        self.cm.set_target_switch('SummitX460-48p+2sf')
+        translatedList, err = self.cm.translate(translateList)
+        for exp in expected:
+            self.assertIn(exp, translatedList)
+
+    def test_translate_enable_telnet_inbound_ok(self):
+        translateList = ['Set Telnet Enable Inbound']
+        expected = ['enable telnet']
+        self.cm.disable_defaults()
+        self.cm.set_source_switch('C5K125-48P2')
+        self.cm.set_target_switch('SummitX460-48p+2sf')
+        translatedList, err = self.cm.translate(translateList)
+        for exp in expected:
+            self.assertIn(exp, translatedList)
+
+    def test_translate_enable_ssh_ok(self):
+        translateList = ['Set SSH EnableD']
+        expected = ['configure ssh2 key', 'enable ssh2']
+        messages = ['NOTICE: ssh.xmod needs to be installed for SSH' +
+                    ' commands to work']
+        self.cm.disable_defaults()
+        self.cm.set_source_switch('C5K125-48P2')
+        self.cm.set_target_switch('SummitX460-48p+2sf')
+        translatedList, err = self.cm.translate(translateList)
+        for exp in expected:
+            self.assertIn(exp, translatedList)
+        for exp in messages:
+            self.assertIn(exp, err)
 
 if __name__ == '__main__':
     unittest.main()

@@ -46,15 +46,21 @@ class IntegrationTest(unittest.TestCase):
     else:
         # this needs to be adjusted if the relative path of the e2x script in
         # regards to this file changes
-        script = os.path.normpath(os.path.abspath("{}/../src/cli.py".format(
-                                  os.path.dirname(os.path.abspath(__file__)))))
+        script = os.path.normpath(
+            os.path.abspath("{}/../src/__main__.py".format(
+                os.path.dirname(os.path.abspath(__file__)))))
 
     # list of keywords to ignore in most tests
     # (mostly when NOT using --ignore-defaults)
-    default_ignores = ["jumbo-frame", "stpd"]
     jumbo_ignore = ["jumbo-frame"]
     ignore_stpd = ["stpd"]
+    ignore_web = ["web"]
+    ignore_mgmt = ["enable dhcp vlan"]
+    ignore_idle = ["configure idletimeout"]
+    default_ignores = (jumbo_ignore + ignore_stpd + ignore_web + ignore_mgmt +
+                       ignore_idle)
     ignore_port_mapping = ["INFO: Mapping port", "NOTICE: Mapping port"]
+    ignore_unused_ports = ['of target switch is not used']
     ignore_outfile = ["NOTICE: Writing translated configuration to file"]
     ignore_lag_info = ["INFO: LAG ",
                        "NOTICE: XOS always allows single port LAGs"]
@@ -65,6 +71,10 @@ class IntegrationTest(unittest.TestCase):
                         "INFO: XOS does not support automatic RSTP/MSTP edge "
                         "port detection"]
 
+    # EOS has jumbo frames enabled by default
+    def_jumbo_conf = ['enable jumbo-frame ports ' + str(i) + '\n'
+                      for i in list(range(1, 49)) + list(range(53, 55))]
+
     # our standard STP compatibility configuration
     std_stp_conf = ['configure stpd s0 delete vlan Default ports all\n',
                     'disable stpd s0 auto-bind vlan Default\n',
@@ -72,6 +82,63 @@ class IntegrationTest(unittest.TestCase):
                     'create stpd s1\n',
                     'configure stpd s1 mode mstp msti 1\n',
                     'enable stpd s1 auto-bind vlan Default\n']
+    def_stp_conf = std_stp_conf + ['enable stpd s0\n', 'enable stpd s1\n']
+
+    # EOS has webview (HTTP management) enabled by default, XOS 16.1 as well
+    def_web_conf = []
+
+    # EOS enables DHCP for the managament IP address by default
+    def_mgmt_conf = ['enable dhcp vlan Default\n']
+
+    # EOS uses 5min default idle timeout, EXOS 20 min
+    def_idle_conf = ['configure idletimeout 5\n']
+
+    # different defaults between EOS and EXOS result in normal messages
+    def_map_msg = [
+        'NOTICE: Mapping port "tg.1.49" to port "53"\n',
+        'NOTICE: Mapping port "tg.1.50" to port "54"\n',
+        'NOTICE: Port "49" of target switch is not used\n',
+        'NOTICE: Port "50" of target switch is not used\n',
+        'NOTICE: Port "51" of target switch is not used\n',
+        'NOTICE: Port "52" of target switch is not used\n',
+    ]
+    def_lag_msg = ['NOTICE: XOS always allows single port LAGs\n']
+
+    # default config generated with empty input file
+    default_config = (def_jumbo_conf + def_stp_conf + def_web_conf +
+                      def_mgmt_conf + def_idle_conf)
+    default_messages = def_map_msg + def_lag_msg
+
+    # known unknown commands (adjust after learning them)
+    unknown_cmds = [
+        'set dhcp disable\n',
+        'configure vlan VLANName tag 42\n',
+        'disable clipaging\n',
+        'enable stacking\n',
+        'access-list ipv6mode\n',
+        'access-list ipv6 acl_1 permit ipv6 host 40:ab:0:0:0:0:0:1 any\n',
+        'access-list mac mac_1 permit 33:33:33:33:33:33 any\n',
+        'access-group name\n',
+        'access-group name in\n',
+        'ipv6 access-group name in\n',
+        'router id 192.0.2.1\n',
+        'interface fubar 0\n',
+        'begin something\n',
+        'end state\n',
+        'set ip protocol unknown\n',
+        'set host container\n',
+        'set ip unknown\n',
+        'set logo\n',
+        'set logout fubar\n',
+        'set logout 42 minutes\n',
+    ]
+    unknown_tmpl = 'NOTICE: Ignoring unknown command "{}"\n'
+    unknown_notices = []
+    for c in unknown_cmds:
+        unknown_notices.append(unknown_tmpl.format(c.strip()))
+    unknown_errors = []
+    for c in unknown_notices:
+        unknown_errors.append(c.replace('NOTICE', 'ERROR', 1))
 
     @classmethod
     def setUpClass(cls):
@@ -93,7 +160,8 @@ class IntegrationTest(unittest.TestCase):
     def _acl_deny_any(self, nr=20):
         return [
             '# next entry added to match EOS ACL implicit deny\n',
-            'entry {}'.format(nr) + ' {\n', '  if {\n', '  } then {\n',
+            'entry {}'.format(nr) + ' {\n', '  if {\n',
+            '    source-address 0.0.0.0/0;\n', '  } then {\n',
             '    deny;\n', '  }\n', '}\n']
 
     # for creating test input files, takes filename (relative to scripttest
@@ -200,31 +268,48 @@ class IntegrationTest(unittest.TestCase):
         # test if port is correctly mapped to first free SFP port
         self.verify_output('out.xsf', ["enable ports 49\n"], [])
 
+    def test_case_095(self):  # check if unknown lines are reported
+        self.create_input('test.cfg', self.unknown_cmds)
+        ret = self.script_env.run(self.script, '-otest.xsf', 'test.cfg',
+                                  '--ignore-defaults', expect_error=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr', self.unknown_notices,
+                           self.default_ignores + self.ignore_outfile +
+                           self.ignore_lag_info + self.ignore_info_vlan_1 +
+                           self.ignore_port_mapping + self.ignore_stpd_info +
+                           self.ignore_unused_ports)
+        # check that no error return code is set
+        self.assertEqual(ret.returncode, 0, "Wrong exit code")
+
     def test_case_022(self):  # check if --keep-unknown-lines works
-        # needs another command if set dhcp is ever implemented
-        self.create_input('test.cfg', ["set dhcp disable\n"])
+        self.create_input('test.cfg', self.unknown_cmds)
         self.script_env.run(self.script, '-otest.xsf', 'test.cfg',
                             '--ignore-defaults', '--keep-unknown-lines',
                             '--quiet')
         # verify if line untouched and has a newline before it
-        self.verify_output('test.xsf', ["\n", "set dhcp disable\n"], [])
+        self.verify_output('test.xsf', ["\n"] + self.unknown_cmds, [])
 
     def test_case_023(self):  # check if --comment-unknown-lines works
-        # needs another command if set dhcp is ever implemented
-        self.create_input('test.cfg', ["set dhcp disable\n"])
+        self.create_input('test.cfg', self.unknown_cmds)
         self.script_env.run(self.script, '-otest.xsf', 'test.cfg',
                             '--ignore-defaults', '--comment-unknown-lines',
                             '--quiet')
         # verify if line is commented with XOS comment char and has a newline
         # before it
-        self.verify_output('test.xsf', ["\n", "# set dhcp disable\n"], [])
+        commented_cmds = ['\n'] + ['# ' + c for c in self.unknown_cmds]
+        self.verify_output('test.xsf', commented_cmds, [])
 
     def test_case_024(self):  # check if --err-unknown-lines works
-        # needs another command if set dhcp is ever implemented
-        self.create_input('test.cfg', ["set dhcp disable\n"])
+        self.create_input('test.cfg', self.unknown_cmds)
         ret = self.script_env.run(self.script, '-otest.xsf', 'test.cfg',
                                   '--ignore-defaults', '--err-unknown-lines',
                                   '--quiet', expect_error=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr', self.unknown_errors,
+                           self.default_ignores + self.ignore_outfile +
+                           self.ignore_lag_info + self.ignore_info_vlan_1 +
+                           self.ignore_port_mapping + self.ignore_stpd_info +
+                           self.ignore_unused_ports)
         # check if error return code is set
         self.assertEqual(ret.returncode, 1, "Wrong exit code")
 
@@ -368,11 +453,13 @@ class IntegrationTest(unittest.TestCase):
             expected_content.append("enable jumbo-frame ports {}\n".format(i))
         expected_content.append("enable jumbo-frame ports 53\n")
         expected_content.append("enable jumbo-frame ports 54\n")
-        self.runner([""], [], expected_content, self.ignore_stpd)
+        self.runner([""], [], expected_content, self.ignore_stpd +
+                    self.ignore_web + self.ignore_mgmt + self.ignore_idle)
 
     def test_case_010(self):
         self.runner(['set port jumbo disable ge.1.12'], [], [],
-                    ["enable jumbo-frame"] + self.ignore_stpd)
+                    ["enable jumbo-frame"] + self.ignore_stpd +
+                    self.ignore_web + self.ignore_mgmt + self.ignore_idle)
         # expected output <empty>
 
     def test_case_011(self):
@@ -386,7 +473,7 @@ class IntegrationTest(unittest.TestCase):
 
     def test_case_013(self):
         self.runner(['set vlan create 100\n'], [],
-                    ["create vlan SYS_NLD_0100 tag 100\n"],
+                    ["create vlan VLAN_0100 tag 100\n"],
                     self.default_ignores)
 
     def test_case_014(self):
@@ -406,8 +493,8 @@ class IntegrationTest(unittest.TestCase):
                      'set vlan egress 100 ge.1.1 untagged\n'],
                     [],
                     ["configure vlan Default delete ports 1\n",
-                     "create vlan SYS_NLD_0100 tag 100\n",
-                     "configure vlan SYS_NLD_0100 add ports 1 untagged\n"],
+                     "create vlan VLAN_0100 tag 100\n",
+                     "configure vlan VLAN_0100 add ports 1 untagged\n"],
                     self.default_ignores)
 
     def test_case_030(self):
@@ -438,10 +525,10 @@ class IntegrationTest(unittest.TestCase):
                      'set vlan egress 3 ge.1.2-5 tagged\n',
                      'clear vlan egress 2,3 ge.1.4\n'],
                     ['--ignore-defaults', '--quiet'],
-                    ['create vlan SYS_NLD_0002 tag 2\n',
-                     'configure vlan SYS_NLD_0002 add ports 2-3,5 tagged\n',
-                     'create vlan SYS_NLD_0003 tag 3\n',
-                     'configure vlan SYS_NLD_0003 add ports 2-3,5 tagged\n'],
+                    ['create vlan VLAN_0002 tag 2\n',
+                     'configure vlan VLAN_0002 add ports 2-3,5 tagged\n',
+                     'create vlan VLAN_0003 tag 3\n',
+                     'configure vlan VLAN_0003 add ports 2-3,5 tagged\n'],
                     [])
 
     def test_case_032(self):
@@ -500,39 +587,52 @@ class IntegrationTest(unittest.TestCase):
                      'configure vlan UNUSED_PORTS add ports 53-54 tagged\n',
                      'create vlan NATIVE tag 1000\n',
                      'configure vlan NATIVE add ports 45-46,53-54 untagged\n',
-                     'create vlan SYS_NLD_3001 tag 3001\n',
-                     'configure vlan SYS_NLD_3001 add ports 53-54 tagged\n',
-                     'create vlan SYS_NLD_3002 tag 3002\n',
-                     'configure vlan SYS_NLD_3002 add ports 53-54 tagged\n',
-                     'create vlan SYS_NLD_3003 tag 3003\n',
-                     'configure vlan SYS_NLD_3003 add ports 53-54 tagged\n',
-                     'create vlan SYS_NLD_3004 tag 3004\n',
-                     'configure vlan SYS_NLD_3004 add ports 53-54 tagged\n',
-                     'create vlan SYS_NLD_3005 tag 3005\n',
-                     'configure vlan SYS_NLD_3005 add ports 53-54 tagged\n',
-                     'create vlan SYS_NLD_3006 tag 3006\n',
-                     'configure vlan SYS_NLD_3006 add ports 53-54 tagged\n',
-                     'create vlan SYS_NLD_3007 tag 3007\n',
-                     'configure vlan SYS_NLD_3007 add ports 53-54 tagged\n',
-                     'create vlan SYS_NLD_3008 tag 3008\n',
-                     'configure vlan SYS_NLD_3008 add ports 53-54 tagged\n',
-                     'create vlan SYS_NLD_3009 tag 3009\n',
-                     'configure vlan SYS_NLD_3009 add ports 53-54 tagged\n',
-                     'create vlan SYS_NLD_3010 tag 3010\n',
-                     'configure vlan SYS_NLD_3010 add ports 53-54 tagged\n'],
-                    self.ignore_stpd)
+                     'create vlan VLAN_3001 tag 3001\n',
+                     'configure vlan VLAN_3001 add ports 53-54 tagged\n',
+                     'create vlan VLAN_3002 tag 3002\n',
+                     'configure vlan VLAN_3002 add ports 53-54 tagged\n',
+                     'create vlan VLAN_3003 tag 3003\n',
+                     'configure vlan VLAN_3003 add ports 53-54 tagged\n',
+                     'create vlan VLAN_3004 tag 3004\n',
+                     'configure vlan VLAN_3004 add ports 53-54 tagged\n',
+                     'create vlan VLAN_3005 tag 3005\n',
+                     'configure vlan VLAN_3005 add ports 53-54 tagged\n',
+                     'create vlan VLAN_3006 tag 3006\n',
+                     'configure vlan VLAN_3006 add ports 53-54 tagged\n',
+                     'create vlan VLAN_3007 tag 3007\n',
+                     'configure vlan VLAN_3007 add ports 53-54 tagged\n',
+                     'create vlan VLAN_3008 tag 3008\n',
+                     'configure vlan VLAN_3008 add ports 53-54 tagged\n',
+                     'create vlan VLAN_3009 tag 3009\n',
+                     'configure vlan VLAN_3009 add ports 53-54 tagged\n',
+                     'create vlan VLAN_3010 tag 3010\n',
+                     'configure vlan VLAN_3010 add ports 53-54 tagged\n'],
+                    self.ignore_stpd + self.ignore_web + self.ignore_mgmt +
+                    self.ignore_idle)
 
     def test_case_033(self):
         self.runner(['set vlan create 2\n', 'set vlan create 3\n'],
                     ['--ignore-defaults', '--quiet'],
-                    ['create vlan SYS_NLD_0002 tag 2\n',
-                     'create vlan SYS_NLD_0003 tag 3\n'], [])
+                    ['create vlan VLAN_0002 tag 2\n',
+                     'create vlan VLAN_0003 tag 3\n'], [])
 
     def test_case_034(self):
         self.runner(['set vlan create 2,3\n'],
                     ['--ignore-defaults', '--quiet'],
-                    ['create vlan SYS_NLD_0002 tag 2\n',
-                     'create vlan SYS_NLD_0003 tag 3\n'], [])
+                    ['create vlan VLAN_0002 tag 2\n',
+                     'create vlan VLAN_0003 tag 3\n'], [])
+
+    def test_case_120(self):
+        self.runner(['set vlan create 3,2\n'],
+                    ['--ignore-defaults', '--quiet'],
+                    ['create vlan VLAN_0003 tag 3\n',
+                     'create vlan VLAN_0002 tag 2\n'], [])
+
+    def test_case_121(self):
+        self.runner(['set vlan create 2-3\n'],
+                    ['--ignore-defaults', '--quiet'],
+                    ['create vlan VLAN_0002 tag 2\n',
+                     'create vlan VLAN_0003 tag 3\n'], [])
 
     def test_case_035(self):
         self.runner(['set vlan create 2,3\n',
@@ -540,29 +640,29 @@ class IntegrationTest(unittest.TestCase):
                      'set port vlan ge.1.3 3 modify-egress\n'],
                     ['--ignore-defaults', '--quiet'],
                     ['configure vlan Default delete ports 2-3\n',
-                     'create vlan SYS_NLD_0002 tag 2\n',
-                     'configure vlan SYS_NLD_0002 add ports 2 untagged\n',
-                     'create vlan SYS_NLD_0003 tag 3\n',
-                     'configure vlan SYS_NLD_0003 add ports 3 untagged\n'], [])
+                     'create vlan VLAN_0002 tag 2\n',
+                     'configure vlan VLAN_0002 add ports 2 untagged\n',
+                     'create vlan VLAN_0003 tag 3\n',
+                     'configure vlan VLAN_0003 add ports 3 untagged\n'], [])
 
     def test_case_036(self):
         self.runner(['set vlan create 2,3\n',
                      'set vlan egress 2 ge.1.1 tagged\n',
                      'set vlan egress 3 ge.1.1 tagged\n'],
                     ['--ignore-defaults', '--quiet'],
-                    ['create vlan SYS_NLD_0002 tag 2\n',
-                     'configure vlan SYS_NLD_0002 add ports 1 tagged\n',
-                     'create vlan SYS_NLD_0003 tag 3\n',
-                     'configure vlan SYS_NLD_0003 add ports 1 tagged\n'], [])
+                    ['create vlan VLAN_0002 tag 2\n',
+                     'configure vlan VLAN_0002 add ports 1 tagged\n',
+                     'create vlan VLAN_0003 tag 3\n',
+                     'configure vlan VLAN_0003 add ports 1 tagged\n'], [])
 
     def test_case_037(self):
         self.runner(['set vlan create 2,3\n',
                      'set vlan egress 2,3 ge.1.1 tagged\n'],
                     ['--ignore-defaults', '--quiet'],
-                    ['create vlan SYS_NLD_0002 tag 2\n',
-                     'configure vlan SYS_NLD_0002 add ports 1 tagged\n',
-                     'create vlan SYS_NLD_0003 tag 3\n',
-                     'configure vlan SYS_NLD_0003 add ports 1 tagged\n'], [])
+                    ['create vlan VLAN_0002 tag 2\n',
+                     'configure vlan VLAN_0002 add ports 1 tagged\n',
+                     'create vlan VLAN_0003 tag 3\n',
+                     'configure vlan VLAN_0003 add ports 1 tagged\n'], [])
 
     def test_case_038(self):
         self.runner(['set vlan create 2,100,200\n',
@@ -588,7 +688,7 @@ class IntegrationTest(unittest.TestCase):
         ret = self.script_env.run(self.script, '-otestoutput', 'testinput',
                                   '--ignore-defaults', '--quiet',
                                   expect_error=True)
-        self.verify_output('testoutput', ['create vlan SYS_NLD_0002 tag 2\n'],
+        self.verify_output('testoutput', ['create vlan VLAN_0002 tag 2\n'],
                            [])
         self.assertEqual(ret.returncode, 1, "Wrong exit code")
         self.assertEqual(ret.stderr, 'ERROR: Cannot use name "Mgmt" for '
@@ -603,8 +703,8 @@ class IntegrationTest(unittest.TestCase):
                                   expect_error=True)
         self.verify_output('testoutput',
                            ['configure vlan Default delete ports 1\n', 'create'
-                            ' vlan SYS_NLD_0002 tag 2\n', 'configure vlan '
-                            'SYS_NLD_0002 add ports 1 untagged\n'], [])
+                            ' vlan VLAN_0002 tag 2\n', 'configure vlan '
+                            'VLAN_0002 add ports 1 untagged\n'], [])
         self.assertEqual(ret.returncode, 1, "Wrong exit code")
         self.assertEqual(ret.stderr, 'ERROR: Cannot use name "Mgmt" for '
                          'regular VLAN\n', "Wrong error message")
@@ -660,10 +760,47 @@ class IntegrationTest(unittest.TestCase):
         self.assertEqual(ret.returncode, 1, "Wrong exit code")
         self.assertEqual(ret.stderr,
                          'ERROR: Port "1" has multiple untagged egress VLANs: '
-                         '(\'Default\', 1) (\'SYS_NLD_0002\', 2)\n'
+                         '(\'Default\', 1) (\'VLAN_0002\', 2)\n'
                          'ERROR: Untagged VLAN egress and ingress differs for '
                          'port "1"\n',
                          "Wrong error message")
+
+    def test_case_122(self):
+        self.create_input('testinput',
+                          ['set vlan create 2\n',
+                           'set port vlan ge.1.1 2\n',
+                           'set vlan egress 2 ge.1.1 tagged\n',
+                           'clear vlan egress 1 ge.1.1\n',
+                           ])
+        ret = self.script_env.run(self.script, '-otestoutput', 'testinput',
+                                  '--ignore-defaults', '--quiet')
+        self.verify_output('testoutput',
+                           ['configure vlan Default delete ports 1\n',
+                            'create vlan VLAN_0002 tag 2\n',
+                            'configure vlan VLAN_0002 add ports 1 tagged\n',
+                            ],
+                           [])
+        self.assertEqual(ret.stderr, '', "Wrong error message")
+
+    def test_case_127(self):
+        self.create_input('testinput', ['clear vlan egress 1 ge.1.1\n'])
+        ret = self.script_env.run(self.script, '-otestoutput', 'testinput',
+                                  '--ignore-defaults', '--quiet')
+        self.verify_output('testoutput',
+                           ['configure vlan Default delete ports 1\n'],
+                           [])
+        self.assertEqual(ret.stderr, '', "Wrong error message")
+
+    def test_case_128(self):
+        self.create_input('testinput', ['clear vlan egress 1 ge.1.1\n'])
+        ret = self.script_env.run(self.script, '-otestoutput', 'testinput',
+                                  '--ignore-defaults', expect_error=True)
+        self.assertEqual(ret.returncode, 0, "Wrong exit code")
+        self.verify_output('testoutput',
+                           ['configure vlan Default delete ports 1\n'],
+                           [])
+        self.assertIn('NOTICE: Port "1" has PVID of 1, but VLAN 1 missing '
+                      'from egress, ignoring PVID', ret.stderr)
 
 # FM LACP
     def test_case_047(self):
@@ -786,15 +923,88 @@ class IntegrationTest(unittest.TestCase):
                     [], expected_content,
                     self.default_ignores)
 
+    def test_case_123(self):
+        self.create_input('testinput', ['set port alias lag.0.1 "LAG One"\n'])
+        ret = self.script_env.run(self.script, '-o-', 'testinput',
+                                  '--ignore-defaults', '--log-level=WARN',
+                                  expect_error=True)
+        self.assertEqual(ret.returncode, 1, "Wrong exit code")
+        self.assertEqual(ret.stderr,
+                         'WARN: LAG "lag.0.1" cannot be mapped to target '
+                         'switch\n'
+                         'ERROR: LAG "lag.0.1" is configured, but not mapped'
+                         ' to target switch\n')
+        self.assertEqual(ret.stdout, '')
+
+    def test_case_124(self):
+        self.create_input('testinput',
+                          ['set port alias lag.0.1 "LAG One"\n',
+                           'set port lacp port ge.1.1-2 enable\n',
+                           ])
+        ret = self.script_env.run(self.script, '-otestoutput', 'testinput',
+                                  '--log-level=WARN')
+        self.verify_output('testoutput',
+                           [
+                               'enable sharing 1 grouping 1-2 algorithm '
+                               'address-based L3 lacp\n',
+                               'configure vlan Default delete ports 2\n',
+                           ],
+                           self.default_ignores)
+        self.assertEqual(ret.stderr, '')
+
+    def test_case_125(self):
+        self.create_input('testinput',
+                          [
+                              'set vlan create 2\n',
+                              'set vlan name 2 "VLAN 2"\n',
+                              'set port vlan lag.0.1 2 modify-egress\n',
+                              'set port lacp port ge.1.1-2 enable\n',
+                          ])
+        ret = self.script_env.run(self.script, '-otestoutput', 'testinput',
+                                  '--log-level=ERROR')
+        self.verify_output('testoutput',
+                           [
+                               'enable sharing 1 grouping 1-2 algorithm '
+                               'address-based L3 lacp\n',
+                               'configure vlan Default delete ports 1-2\n',
+                               'create vlan VLAN_2 tag 2\n',
+                               'configure vlan VLAN_2 add ports 1 untagged\n',
+                           ],
+                           self.default_ignores)
+        self.assertEqual(ret.stderr, '')
+
+    def test_case_126(self):
+        self.create_input('testinput',
+                          [
+                              'set vlan create 2\n',
+                              'set vlan name 2 "VLAN 2"\n',
+                              'set vlan egress 2 lag.0.1 tagged\n',
+                              'set port lacp port ge.1.1-2 enable\n',
+                          ])
+        ret = self.script_env.run(self.script, '-otestoutput', 'testinput',
+                                  '--log-level=ERROR')
+        self.verify_output('testoutput',
+                           [
+                               'enable sharing 1 grouping 1-2 algorithm '
+                               'address-based L3 lacp\n',
+                               'configure vlan Default delete ports 2\n',
+                               'create vlan VLAN_2 tag 2\n',
+                               'configure vlan VLAN_2 add ports 1 tagged\n',
+                           ],
+                           self.default_ignores)
+        self.assertEqual(ret.stderr, '')
+
 # FM STP
     def test_case_060(self):
         self.runner(['set spantree enable\n'], [], self.std_stp_conf +
                     ['enable stpd s0\n', 'enable stpd s1\n'],
-                    self.jumbo_ignore)
+                    self.jumbo_ignore + self.ignore_web + self.ignore_mgmt +
+                    self.ignore_idle)
 
     def test_case_061(self):
         self.runner(['set spantree disable\n'], [], [],
-                    self.jumbo_ignore)
+                    self.jumbo_ignore + self.ignore_web + self.ignore_mgmt +
+                    self.ignore_idle)
 
     def test_case_062(self):
         self.create_input('testinput', ['set spantree msti sid 2 create\n'])
@@ -819,7 +1029,8 @@ class IntegrationTest(unittest.TestCase):
             ' instance\n',
         ]
         self.verify_output('testoutput.xsf', expected_output,
-                           self.jumbo_ignore)
+                           self.jumbo_ignore + self.ignore_web +
+                           self.ignore_mgmt + self.ignore_idle)
         self.stderrToFile(ret.stderr, 'stderr')
         self.verify_output('stderr', expected_errors,
                            ['Mapping', 'Port', 'LAGs'])
@@ -828,7 +1039,7 @@ class IntegrationTest(unittest.TestCase):
     def test_case_063(self):
         self.runner(['set spantree msti sid 2 create\n', 'set vlan create 2000'
                      '\n', 'set spantree mstmap 2000 sid 2\n'], [],
-                    ['create vlan SYS_NLD_2000 tag 2000\n',
+                    ['create vlan VLAN_2000 tag 2000\n',
                      'configure mstp revision 0\n',
                      'configure stpd s0 delete vlan Default ports all\n',
                      'disable stpd s0 auto-bind vlan Default\n',
@@ -837,9 +1048,11 @@ class IntegrationTest(unittest.TestCase):
                      'create stpd s2\n',
                      'configure stpd s2 default-encapsulation dot1d\n',
                      'configure stpd s2 mode mstp msti 2\n',
-                     'enable stpd s2 auto-bind vlan SYS_NLD_2000\n',
+                     'enable stpd s2 auto-bind vlan VLAN_2000\n',
                      'enable stpd s2\n',
-                     ], self.jumbo_ignore)
+                     ],
+                    self.jumbo_ignore + self.ignore_web +
+                    self.ignore_mgmt + self.ignore_idle)
 
     def test_case_064(self):
         self.create_input('testinput', ['set spantree adminedge ge.1.1 true'
@@ -849,7 +1062,8 @@ class IntegrationTest(unittest.TestCase):
         self.verify_output('testoutput.xsf',  self.std_stp_conf +
                            ['enable stpd s0\n', 'enable stpd s1\n',
                             'configure stpd s0 ports link-type edge 1\n'],
-                           self.jumbo_ignore)
+                           self.jumbo_ignore + self.ignore_web +
+                           self.ignore_mgmt + self.ignore_idle)
         self.stderrToFile(ret.stderr, 'stderr')
         self.verify_output('stderr',
                            ['NOTICE: Writing translated configuration to file'
@@ -861,24 +1075,28 @@ class IntegrationTest(unittest.TestCase):
     def test_case_065(self):
         self.runner([], [], self.std_stp_conf +
                     ['enable stpd s0\n', 'enable stpd s1\n'],
-                    self.jumbo_ignore)
+                    self.jumbo_ignore + self.ignore_web + self.ignore_mgmt +
+                    self.ignore_idle)
 
     def test_case_066(self):
         self.runner(['set spantree version rstp\n'], [], self.std_stp_conf +
                     ['enable stpd s0\n', 'enable stpd s1\n'],
-                    self.jumbo_ignore)
+                    self.jumbo_ignore + self.ignore_web + self.ignore_mgmt +
+                    self.ignore_idle)
 
     def test_case_067(self):
         self.runner(['set spantree priority 0 0\n'], [], self.std_stp_conf +
                     ['configure stpd s0 priority 0\n', 'enable stpd s0\n',
-                     'enable stpd s1\n'], self.jumbo_ignore)
+                     'enable stpd s1\n'], self.jumbo_ignore + self.ignore_web +
+                    self.ignore_mgmt + self.ignore_idle)
 
     def test_case_068(self):
         self.runner(['set spantree portadmin ge.1.1 disable\n'], [],
                     self.std_stp_conf +
                     ['enable stpd s0\n', 'enable stpd s1\n',
                      'disable stpd s0 ports 1\n'],
-                    self.jumbo_ignore)
+                    self.jumbo_ignore + self.ignore_web + self.ignore_mgmt +
+                    self.ignore_idle)
 
     def test_case_069(self):
         self.runner(['set spantree adminedge ge.1.1 true\n',
@@ -886,12 +1104,14 @@ class IntegrationTest(unittest.TestCase):
                     self.std_stp_conf +
                     ['enable stpd s0\n', 'enable stpd s1\n', 'configure stpd '
                      's0 ports link-type edge 1 edge-safeguard enable\n'],
-                    self.jumbo_ignore)
+                    self.jumbo_ignore + self.ignore_web + self.ignore_mgmt +
+                    self.ignore_idle)
 
     def test_case_070(self):
         self.runner(['set spantree priority 0\n'], [], self.std_stp_conf +
                     ['configure stpd s0 priority 0\n', 'enable stpd s0\n',
-                     'enable stpd s1\n'], self.jumbo_ignore)
+                     'enable stpd s1\n'], self.jumbo_ignore + self.ignore_web +
+                    self.ignore_mgmt + self.ignore_idle)
 
     def test_case_071(self):
         eos_conf = [
@@ -912,9 +1132,10 @@ class IntegrationTest(unittest.TestCase):
             'enable stpd s1 auto-bind vlan Default\n',
             'enable stpd s1\n',
         ]
-        self.runner(eos_conf, [], expected_conf, self.jumbo_ignore)
+        self.runner(eos_conf, [], expected_conf, self.jumbo_ignore +
+                    self.ignore_web + self.ignore_mgmt + self.ignore_idle)
 
-    def test_cast_072(self):
+    def test_case_072(self):
         eos_conf = [
             'set spantree autoedge disable\n',
         ]
@@ -927,7 +1148,8 @@ class IntegrationTest(unittest.TestCase):
             ' RSTP configuration\n',
         ]
         opts = ['--verbose']
-        ignore_conf = self.jumbo_ignore
+        ignore_conf = (self.jumbo_ignore + self.ignore_web + self.ignore_mgmt +
+                       self.ignore_idle)
         ignore_err = ['Mapping', 'Port', 'LAG', 'VLAN 1 ']
         self.create_input('testinput', eos_conf)
         ret = self.script_env.run(self.script, '-otestoutput.xsf', 'testinput',
@@ -936,7 +1158,7 @@ class IntegrationTest(unittest.TestCase):
         self.stderrToFile(ret.stderr, 'stderr')
         self.verify_output('stderr', expected_err, ignore_err)
 
-    def test_cast_073(self):
+    def test_case_073(self):
         eos_conf = [
             'set spantree autoedge enable\n',
         ]
@@ -950,7 +1172,8 @@ class IntegrationTest(unittest.TestCase):
             'WARN: XOS does not support automatic edge port detection\n'
         ]
         opts = ['--verbose']
-        ignore_conf = self.jumbo_ignore
+        ignore_conf = (self.jumbo_ignore + self.ignore_web + self.ignore_mgmt +
+                       self.ignore_idle)
         ignore_err = ['Mapping', 'Port', 'LAG', 'VLAN 1 ']
         self.create_input('testinput', eos_conf)
         ret = self.script_env.run(self.script, '-otestoutput.xsf', 'testinput',
@@ -959,7 +1182,7 @@ class IntegrationTest(unittest.TestCase):
         self.stderrToFile(ret.stderr, 'stderr')
         self.verify_output('stderr', expected_err, ignore_err)
 
-    def test_cast_074(self):
+    def test_case_074(self):
         eos_conf = [
         ]
         expected_conf = self.std_stp_conf + ['enable stpd s0\n',
@@ -973,7 +1196,8 @@ class IntegrationTest(unittest.TestCase):
             ' detection\n'
         ]
         opts = ['--verbose']
-        ignore_conf = self.jumbo_ignore
+        ignore_conf = (self.jumbo_ignore + self.ignore_web + self.ignore_mgmt +
+                       self.ignore_idle)
         ignore_err = ['Mapping', 'Port', 'LAG', 'VLAN 1 ']
         self.create_input('testinput', eos_conf)
         ret = self.script_env.run(self.script, '-otestoutput.xsf', 'testinput',
@@ -981,6 +1205,34 @@ class IntegrationTest(unittest.TestCase):
         self.verify_output('testoutput.xsf', expected_conf, ignore_conf)
         self.stderrToFile(ret.stderr, 'stderr')
         self.verify_output('stderr', expected_err, ignore_err)
+
+    def test_case_129(self):
+        self.runner(['set spantree msti sid 2 create\n',
+                     'set vlan create 2000\n',
+                     'set spantree mstmap 2000 sid 2\n',
+                     'set vlan create 2001\n',
+                     'set spantree msti sid 3 create\n',
+                     'set spantree mstmap 2001 sid 3\n'], [],
+                    ['create vlan VLAN_2000 tag 2000\n',
+                     'create vlan VLAN_2001 tag 2001\n',
+                     'configure mstp revision 0\n',
+                     'configure stpd s0 delete vlan Default ports all\n',
+                     'disable stpd s0 auto-bind vlan Default\n',
+                     'configure stpd s0 mode mstp cist\n',
+                     'enable stpd s0\n',
+                     'create stpd s2\n',
+                     'configure stpd s2 default-encapsulation dot1d\n',
+                     'configure stpd s2 mode mstp msti 2\n',
+                     'enable stpd s2 auto-bind vlan VLAN_2000\n',
+                     'enable stpd s2\n',
+                     'create stpd s3\n',
+                     'configure stpd s3 default-encapsulation dot1d\n',
+                     'configure stpd s3 mode mstp msti 3\n',
+                     'enable stpd s3 auto-bind vlan VLAN_2001\n',
+                     'enable stpd s3\n',
+                     ],
+                    self.jumbo_ignore + self.ignore_web +
+                    self.ignore_mgmt + self.ignore_idle)
 
 # FM ACL
     def test_case_077(self):  # basic function test without file output
@@ -999,7 +1251,7 @@ class IntegrationTest(unittest.TestCase):
     def test_case_078(self):  # basic file writing test
         self.create_input('acl.cfg', ['router\n', 'enable\n', 'configure\n',
                           'access-list 1 permit host 55.1.2.3\n', 'exit\n',
-                                      'exit\n', 'exit'])
+                                      'exit\n', 'exit\n'])
         self.script_env.run(self.script, 'acl.cfg', '--quiet')
         # check if output is a file (change if output names are changed)
         self.assertTrue(os.path.isfile('{}/acl.xsf'.format(self.tmpdir)),
@@ -1018,7 +1270,7 @@ class IntegrationTest(unittest.TestCase):
     def test_case_079(self):  # check if syntactically wrong acl command fails
         self.create_input('acl.cfg', ['router\n', 'enable\n', 'configure\n',
                           'access-list 6 permit ip host 55.1.2.3\n', 'exit\n',
-                                      'exit\n', 'exit'])
+                                      'exit\n', 'exit\n'])
         ret = self.script_env.run(self.script, 'acl.cfg', '--quiet',
                                   expect_stderr=True, expect_error=True)
         self.stderrToFile(ret.stderr, 'stderr')
@@ -1026,12 +1278,58 @@ class IntegrationTest(unittest.TestCase):
                            '"access-list 6 permit ip host 55.1.2.3"\n'], [])
         self.assertEqual(ret.returncode, 1, "Wrong exit code")
 
-    def test_case_080(self):  # test with 2 ACLs seperated by a comment char
+    def test_case_105(self):  # check for WARN about ignored QoS
+        self.create_input(
+            'acl.cfg',
+            ['router\n', 'enable\n', 'configure\n',
+             'access-list 6 permit host 55.1.2.3 assign-queue 5\n',
+             'access-list 1 permit any assign-queue 2\n',
+             'access-list 100 permit udp host 61.102.3.2 61.112.0.0 0.0.0.255'
+             ' dscp ef\n',
+             'access-list 100 permit udp host 61.102.3.5 61.112.0.0 0.0.0.255'
+             ' dscp ef assign-queue 4\n',
+             'access-list 100 permit ip 61.114.6.7 0.0.0.255 host '
+             '61.114.114.114 tos 23 fa\n',
+             'access-list 100 permit tcp host 61.114.74.74 eq 17 any '
+             'precedence 7\n',
+             'access-list 100 permit udp host 61.114.43.33 eq 520 host '
+             '61.114.43.33 eq 520 assign-queue 5\n',
+             'access-list 100 permit udp host 61.114.43.33 eq 161 host '
+             '61.88.12.34 tos ff cb assign-queue 4\n',
+             'exit\n', 'exit\n', 'exit\n'
+             ])
+        ret = self.script_env.run(self.script, 'acl.cfg', '--log-level=WARN',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr', [
+            'WARN: Ignoring "assign-queue 5" in "access-list 6 permit host'
+            ' 55.1.2.3 assign-queue 5"\n',
+            'WARN: Ignoring "assign-queue 2" in "access-list 1 permit any '
+            'assign-queue 2"\n',
+            'WARN: Ignoring "dscp ef" in "access-list 100 permit udp host '
+            '61.102.3.2 61.112.0.0 0.0.0.255 dscp ef"\n',
+            'WARN: Ignoring "dscp ef assign-queue 4" in "access-list 100 '
+            'permit udp host 61.102.3.5 61.112.0.0 0.0.0.255 dscp ef '
+            'assign-queue 4"\n',
+            'WARN: Ignoring "tos 23 fa" in "access-list 100 permit ip '
+            '61.114.6.7 0.0.0.255 host 61.114.114.114 tos 23 fa"\n',
+            'WARN: Ignoring "precedence 7" in "access-list 100 permit tcp host'
+            ' 61.114.74.74 eq 17 any precedence 7"\n',
+            'WARN: Ignoring "assign-queue 5" in "access-list 100 permit udp '
+            'host 61.114.43.33 eq 520 host 61.114.43.33 eq 520 assign-queue 5'
+            '"\n',
+            'WARN: Ignoring "tos ff cb assign-queue 4" in "access-list 100 '
+            'permit udp host 61.114.43.33 eq 161 host 61.88.12.34 tos ff cb '
+            'assign-queue 4"\n',
+            ], [])
+        self.assertEqual(ret.returncode, 0, "Wrong exit code")
+
+    def test_case_080(self):  # test with 2 ACLs separated by a comment char
         self.create_input('acl.cfg',
                           ['router\n', 'enable\n', 'configure\n',
                            'access-list 2 deny any\n', '!\n', 'access-list 3 '
                            'permit host 55.1.2.3\n', 'exit\n', 'exit\n',
-                           'exit'])
+                           'exit\n'])
         self.script_env.run(self.script, 'acl.cfg', '--quiet')
         # check for files
         self.assertTrue(os.path.isdir('{}/acl.acls'
@@ -1042,7 +1340,8 @@ class IntegrationTest(unittest.TestCase):
                         .format(self.tmpdir)), "Output not a file")
         # check outputs
         self.verify_output('acl.acls/acl_2.pol',
-                           ['entry 10 {\n', '  if {\n', '  } then {\n',
+                           ['entry 10 {\n', '  if {\n',
+                            '    source-address 0.0.0.0/0;\n', '  } then {\n',
                             '    deny;\n', '  }\n', '}\n'] +
                            self._acl_deny_any(), [])
         self.verify_output('acl.acls/acl_3.pol',
@@ -1057,7 +1356,7 @@ class IntegrationTest(unittest.TestCase):
                                       'access-list 1 deny 192.0.2.2 0.0.0.0\n',
                                       'access-list 1 permit 192.0.2.0 '
                                       '0.0.0.130\n', 'exit\n', 'exit\n',
-                                      'exit'])
+                                      'exit\n'])
         self.script_env.run(self.script, 'acl.cfg', '--quiet')
         self.verify_output('acl.acls/acl_1.pol',
                            ['entry 10 {\n', '  if {\n',
@@ -1078,7 +1377,7 @@ class IntegrationTest(unittest.TestCase):
                            '10.0.1.0 0.0.0.255\n',
                            'access-list 123 deny tcp 10.0.0.1 0.0.0.0 eq 8088 '
                            '10.0.1.0 0.0.0.255 eq 8088\n',
-                           'exit\n', 'exit\n', 'exit'])
+                           'exit\n', 'exit\n', 'exit\n'])
         self.script_env.run(self.script, 'acl.cfg', '--quiet')
         self.verify_output('acl.acls/acl_123.pol',
                            ['entry 10 {\n', '  if {\n',
@@ -1134,7 +1433,8 @@ class IntegrationTest(unittest.TestCase):
                                       'access-list 1 deny 192.0.2.2 0.0.0.0\n',
                                       'access-list 1 permit 192.0.2.0 '
                                       '0.0.0.130\n', 'access-list interface 1'
-                                      ' ge.1.1\n', 'exit\n', 'exit\n', 'exit'])
+                                      ' ge.1.1\n', 'exit\n', 'exit\n',
+                                      'exit\n'])
         self.script_env.run(self.script, 'acl.cfg', '--quiet')
         self.verify_output('acl.acls/acl_1.pol',
                            ['entry 10 {\n', '  if {\n',
@@ -1151,19 +1451,83 @@ class IntegrationTest(unittest.TestCase):
                            ['configure access-list acl_1 ports 1 ingress\n'],
                            self.default_ignores)
 
-    def test_case_072(self):  # test binding 2 ACLs to a port
+    def test_case_106(self):  # sequence ignored WARN with ACL on port
+        self.create_input('acl.cfg', ['router\n', 'enable\n', 'configure\n',
+                                      'access-list 1 permit host 192.0.2.1\n',
+                                      'access-list 1 deny 192.0.2.2 0.0.0.0\n',
+                                      'access-list 1 permit 192.0.2.0 '
+                                      '0.0.0.130\n', 'access-list interface 1'
+                                      ' ge.1.1 sequence 2\n', 'access-list '
+                                      'interface 1 ge.1.2 in sequence 3\n',
+                                      'exit\n', 'exit\n', 'exit\n'])
+        ret = self.script_env.run(self.script, 'acl.cfg',
+                                  '--log-level', 'WARN', expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('acl.acls/acl_1.pol',
+                           ['entry 10 {\n', '  if {\n',
+                            '    source-address 192.0.2.1/255.255.255.255;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n',
+                            'entry 20 {\n', '  if {\n',
+                            '    source-address 192.0.2.2/255.255.255.255;\n',
+                            '  } then {\n', '    deny;\n', '  }\n', '}\n',
+                            'entry 30 {\n', '  if {\n',
+                            '    source-address 192.0.2.0/255.255.255.125;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n'] +
+                           self._acl_deny_any(40), [])
+        self.verify_output('acl.xsf',
+                           ['configure access-list acl_1 ports 1 ingress\n',
+                            'configure access-list acl_1 ports 2 ingress\n'],
+                           self.default_ignores)
+        self.verify_output('stderr',
+                           ['WARN: Ignoring ACL sequence number (access-list '
+                            'interface) "access-list interface 1 ge.1.1 '
+                            'sequence 2"\n',
+                            'WARN: Ignoring ACL sequence number (access-list '
+                            'interface) "access-list interface 1 ge.1.2 in '
+                            'sequence 3"\n',
+                            ],
+                           [])
+
+    def test_case_104(self):  # test binding same ACL twice to a port
+        self.create_input('acl.cfg', ['router\n', 'enable\n', 'configure\n',
+                                      'access-list 1 permit host 192.0.2.1\n',
+                                      'access-list 1 deny 192.0.2.2 0.0.0.0\n',
+                                      'access-list 1 permit 192.0.2.0 '
+                                      '0.0.0.130\n', 'access-list interface 1'
+                                      ' ge.1.1\n', 'access-list interface 1 '
+                                      'ge.1.1 in\n', 'exit\n', 'exit\n',
+                                      'exit\n'])
+        self.script_env.run(self.script, 'acl.cfg', '--quiet')
+        self.verify_output('acl.acls/acl_1.pol',
+                           ['entry 10 {\n', '  if {\n',
+                            '    source-address 192.0.2.1/255.255.255.255;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n',
+                            'entry 20 {\n', '  if {\n',
+                            '    source-address 192.0.2.2/255.255.255.255;\n',
+                            '  } then {\n', '    deny;\n', '  }\n', '}\n',
+                            'entry 30 {\n', '  if {\n',
+                            '    source-address 192.0.2.0/255.255.255.125;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n'] +
+                           self._acl_deny_any(40), [])
+        self.verify_output('acl.xsf',
+                           ['configure access-list acl_1 ports 1 ingress\n'],
+                           self.default_ignores)
+
+    def test_case_100(self):  # test binding 2 ACLs to a port
         self.create_input('acl.cfg', ['router\n', 'enable\n', 'configure\n',
                                       'access-list 1 permit host 192.0.2.1\n',
                                       'access-list 2 deny 192.0.2.2 0.0.0.0\n',
                                       'access-list 1 permit 192.0.2.0 '
                                       '0.0.0.130\n', 'access-list interface 1'
                                       ' ge.1.1\n', 'access-list interface 2'
-                                      ' ge.1.1\n', 'exit\n', 'exit\n', 'exit'])
-        ret = self.script_env.run(self.script, 'acl.cfg', '--quiet',
+                                      ' ge.1.1\n', 'exit\n', 'exit\n',
+                                      'exit\n'])
+        ret = self.script_env.run(self.script, 'acl.cfg', '--log-level=WARN',
                                   expect_stderr=True, expect_error=True)
         self.stderrToFile(ret.stderr, 'stderr')
         self.verify_output('stderr',
-                           ['ERROR: EXOS allows only one ACL per port\n'],
+                           ['ERROR: EXOS allows only one ACL per port '
+                            '(port "1")\n'],
                            [])
         self.verify_output('acl.acls/acl_1.pol',
                            ['entry 10 {\n', '  if {\n',
@@ -1189,7 +1553,7 @@ class IntegrationTest(unittest.TestCase):
                                       'access-list 1 permit 192.0.2.0 '
                                       '0.0.0.130\n', 'interface vlan 1\n',
                                       'ip access-group 1 in\n', 'exit\n'
-                                      'exit\n', 'exit\n', 'exit'])
+                                      'exit\n', 'exit\n', 'exit\n'])
         self.script_env.run(self.script, 'acl.cfg', '--quiet')
         self.verify_output('acl.acls/acl_1.pol',
                            ['entry 10 {\n', '  if {\n',
@@ -1207,14 +1571,14 @@ class IntegrationTest(unittest.TestCase):
                             'ingress\n'],
                            self.default_ignores)
 
-    def test_case_074(self):  # test binding ACL to an SVI
+    def test_case_101(self):  # test binding ACL to an SVI w/o in keyword
         self.create_input('acl.cfg', ['router\n', 'enable\n', 'configure\n',
                                       'access-list 1 permit host 192.0.2.1\n',
                                       'access-list 1 deny 192.0.2.2 0.0.0.0\n',
                                       'access-list 1 permit 192.0.2.0 '
                                       '0.0.0.130\n', 'interface vlan 1\n',
                                       'ip access-group 1\n', 'exit\n'
-                                      'exit\n', 'exit\n', 'exit'])
+                                      'exit\n', 'exit\n', 'exit\n'])
         self.script_env.run(self.script, 'acl.cfg', '--quiet')
         self.verify_output('acl.acls/acl_1.pol',
                            ['entry 10 {\n', '  if {\n',
@@ -1232,7 +1596,45 @@ class IntegrationTest(unittest.TestCase):
                             'ingress\n'],
                            self.default_ignores)
 
-    def test_case_073(self):  # test binding 2 ACLs to an SVI
+    def test_case_107(self):  # sequence ignored WARN with ACL on SVI
+        self.create_input('acl.cfg', ['router\n', 'enable\n', 'configure\n',
+                                      'access-list 1 permit host 192.0.2.1\n',
+                                      'access-list 1 deny 192.0.2.2 0.0.0.0\n',
+                                      'access-list 1 permit 192.0.2.0 '
+                                      '0.0.0.130\n', 'interface vlan 1\n',
+                                      'ip access-group 1 in sequence 1\n',
+                                      'ip access-group 1 sequence 2\n',
+                                      'exit\n', 'exit\n', 'exit\n', 'exit\n'])
+        ret = self.script_env.run(self.script, 'acl.cfg',
+                                  '--log-level', 'WARN', expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('acl.acls/acl_1.pol',
+                           ['entry 10 {\n', '  if {\n',
+                            '    source-address 192.0.2.1/255.255.255.255;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n',
+                            'entry 20 {\n', '  if {\n',
+                            '    source-address 192.0.2.2/255.255.255.255;\n',
+                            '  } then {\n', '    deny;\n', '  }\n', '}\n',
+                            'entry 30 {\n', '  if {\n',
+                            '    source-address 192.0.2.0/255.255.255.125;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n'] +
+                           self._acl_deny_any(40), [])
+        self.verify_output('acl.xsf',
+                           ['configure access-list acl_1 vlan Default '
+                            'ingress\n'],
+                           self.default_ignores)
+        self.verify_output('stderr',
+                           ['WARN: Ignoring "sequence 1" in "ip access-group 1'
+                            ' in sequence 1"\n',
+                            'WARN: Ignoring "sequence 2" in "ip access-group 1'
+                            ' sequence 2"\n',
+                            'WARN: EXOS cannot disable switched virtual '
+                            'interfaces, ignoring shutdown state of interface '
+                            'VLAN 1\n',
+                            ],
+                           [])
+
+    def test_case_102(self):  # test binding 2 ACLs to an SVI
         self.create_input('acl.cfg', ['router\n', 'enable\n', 'configure\n',
                                       'access-list 1 permit host 192.0.2.1\n',
                                       'access-list 2 deny 192.0.2.2 0.0.0.0\n',
@@ -1241,13 +1643,13 @@ class IntegrationTest(unittest.TestCase):
                                       'interface vlan 1\n'
                                       'ip access-group 1\n',
                                       'ip access-group 2 in\n',
-                                      'exit\n', 'exit\n', 'exit\n', 'exit'])
+                                      'exit\n', 'exit\n', 'exit\n', 'exit\n'])
         ret = self.script_env.run(self.script, 'acl.cfg', '--quiet',
                                   expect_stderr=True, expect_error=True)
         self.stderrToFile(ret.stderr, 'stderr')
         self.verify_output('stderr',
                            ['ERROR: Only one ACL per VLAN possible with EXOS'
-                            '\n'],
+                            ' (VLAN "Default", tag 1)\n'],
                            [])
         self.verify_output('acl.acls/acl_1.pol',
                            ['entry 10 {\n', '  if {\n',
@@ -1266,15 +1668,43 @@ class IntegrationTest(unittest.TestCase):
                            [],
                            self.default_ignores)
 
+    def test_case_103(self):  # test binding same ACL twice to an SVI
+        self.create_input('acl.cfg', ['router\n', 'enable\n', 'configure\n',
+                                      'access-list 1 permit host 192.0.2.1\n',
+                                      'access-list 1 deny 192.0.2.2 0.0.0.0\n',
+                                      'access-list 1 permit 192.0.2.0 '
+                                      '0.0.0.130\n', 'interface vlan 1\n',
+                                      'ip access-group 1 in\n',
+                                      'ip access-group 1\n', 'exit\n'
+                                      'exit\n', 'exit\n', 'exit\n'])
+        self.script_env.run(self.script, 'acl.cfg', '--quiet')
+        self.verify_output('acl.acls/acl_1.pol',
+                           ['entry 10 {\n', '  if {\n',
+                            '    source-address 192.0.2.1/255.255.255.255;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n',
+                            'entry 20 {\n', '  if {\n',
+                            '    source-address 192.0.2.2/255.255.255.255;\n',
+                            '  } then {\n', '    deny;\n', '  }\n', '}\n',
+                            'entry 30 {\n', '  if {\n',
+                            '    source-address 192.0.2.0/255.255.255.125;\n',
+                            '  } then {\n', '    permit;\n', '  }\n', '}\n'] +
+                           self._acl_deny_any(40), [])
+        self.verify_output('acl.xsf',
+                           ['configure access-list acl_1 vlan Default '
+                            'ingress\n'],
+                           self.default_ignores)
+
     def test_case_086(self):  # test for upper case ICMP protocol in ACL/ACE
         self.create_input('acl.cfg',
                           ['router\n', 'enable\n', 'configure\n',
                            'access-list 145 deny ICMP any any\n',
-                           'exit\n', 'exit\n', 'exit'])
+                           'exit\n', 'exit\n', 'exit\n'])
         self.script_env.run(self.script, 'acl.cfg', '--quiet')
         self.verify_output('acl.acls/acl_145.pol',
                            ['entry 10 {\n', '  if {\n',
                             '    protocol icmp;\n',
+                            '    source-address 0.0.0.0/0;\n',
+                            '    destination-address 0.0.0.0/0;\n',
                             '  } then {\n', '    deny;\n', '  }\n',
                             '}\n'] + self._acl_deny_any(), [])
 
@@ -1313,19 +1743,23 @@ class IntegrationTest(unittest.TestCase):
         self.verify_output('testoutput.acls/acl_196.pol',
                            ['entry 10 {\n', '  if {\n',
                             '    protocol igmp;\n',
+                            '    source-address 0.0.0.0/0;\n',
                             '    destination-address 4.1.0.1/255.255.0.0;\n',
                             '  } then {\n', '    permit;\n', '  }\n', '}\n',
                             'entry 20 {\n', '  if {\n',
                             '    protocol igmp;\n',
                             '    source-address 6.1.0.1/255.255.0.0;\n',
+                            '    destination-address 0.0.0.0/0;\n',
                             '  } then {\n', '    permit;\n', '  }\n', '}\n',
                             'entry 30 {\n', '  if {\n',
                             '    protocol igmp;\n',
+                            '    source-address 0.0.0.0/0;\n',
                             '    destination-address 4.1.0.5/255.255.0.0;\n',
                             '  } then {\n', '    permit;\n', '  }\n', '}\n',
                             'entry 40 {\n', '  if {\n',
                             '    protocol igmp;\n',
                             '    source-address 6.1.0.5/255.255.0.0;\n',
+                            '    destination-address 0.0.0.0/0;\n',
                             '  } then {\n', '    permit;\n', '  }\n', '}\n',
                             ] + self._acl_deny_any(50), [])
 
@@ -1470,6 +1904,1086 @@ class IntegrationTest(unittest.TestCase):
             'NOTICE: See the ExtremeXOS Configuration Guide on how to '
             'configure stacking\n',
             ], [])
+
+    def test_case_092(self):  # prompt to sysName
+        self.create_input('prompt.cfg', ['set prompt Switch01\n'])
+        ret = self.script_env.run(self.script, 'prompt.cfg',
+                                  '--ignore-defaults',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('prompt.xsf',
+                           ['configure snmp sysName "Switch01"\n'],
+                           [])
+        self.verify_output('stderr', [],
+                           self.default_ignores + self.ignore_outfile +
+                           self.ignore_lag_info + self.ignore_info_vlan_1 +
+                           self.ignore_port_mapping + self.ignore_stpd_info +
+                           self.ignore_unused_ports)
+
+    def test_case_093(self):  # sysName
+        self.create_input('prompt.cfg', ['set system name Switch01\n'])
+        ret = self.script_env.run(self.script, 'prompt.cfg',
+                                  '--ignore-defaults',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('prompt.xsf',
+                           ['configure snmp sysName "Switch01"\n'],
+                           [])
+        self.verify_output('stderr', [],
+                           self.default_ignores + self.ignore_outfile +
+                           self.ignore_lag_info + self.ignore_info_vlan_1 +
+                           self.ignore_port_mapping + self.ignore_stpd_info +
+                           self.ignore_unused_ports)
+
+    def test_case_094(self):  # sysName overwrites prompt
+        self.create_input('prompt.cfg',
+                          ['set system name Switch01\n',
+                           'set prompt Switch02\n'])
+        ret = self.script_env.run(self.script, 'prompt.cfg',
+                                  '--ignore-defaults',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('prompt.xsf',
+                           ['configure snmp sysName "Switch01"\n'],
+                           [])
+        self.verify_output('stderr', ['WARN: The EXOS prompt is derived from'
+                                      ' the snmp system name, ignoring the '
+                                      'configured prompt\n'],
+                           self.default_ignores + self.ignore_outfile +
+                           self.ignore_lag_info + self.ignore_info_vlan_1 +
+                           self.ignore_port_mapping + self.ignore_stpd_info +
+                           self.ignore_unused_ports)
+
+    def test_case_096(self):  # sysContact
+        self.create_input('contact.cfg',
+                          ['set system contact admin@example.com\n'])
+        ret = self.script_env.run(self.script, 'contact.cfg',
+                                  '--ignore-defaults',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('contact.xsf',
+                           ['configure snmp sysContact "admin@example.com"\n'],
+                           [])
+        self.verify_output('stderr', [],
+                           self.default_ignores + self.ignore_outfile +
+                           self.ignore_lag_info + self.ignore_info_vlan_1 +
+                           self.ignore_port_mapping + self.ignore_stpd_info +
+                           self.ignore_unused_ports)
+
+    def test_case_099(self):  # space OK in sysName and sysContact
+        self.create_input('names.cfg',
+                          ['set system contact ' +
+                           '"Network Admin Team (admin@example.com)"\n',
+                           'set system name "Switch 1"\n'])
+        ret = self.script_env.run(self.script, 'names.cfg',
+                                  '--ignore-defaults',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('names.xsf',
+                           ['configure snmp sysName "Switch 1"\n',
+                            'configure snmp sysContact ' +
+                            '"Network Admin Team (admin@example.com)"\n'],
+                           [])
+        self.verify_output('stderr', [],
+                           self.default_ignores + self.ignore_outfile +
+                           self.ignore_lag_info + self.ignore_info_vlan_1 +
+                           self.ignore_port_mapping + self.ignore_stpd_info +
+                           self.ignore_unused_ports)
+
+    def test_case_098(self):  # sysLocation
+        self.create_input('location.cfg',
+                          ['set system location "HQ / Bldg 1 / Floor 3"\n'])
+        ret = self.script_env.run(self.script, 'location.cfg',
+                                  '--ignore-defaults',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('location.xsf',
+                           ['configure snmp sysLocation ' +
+                            '"HQ / Bldg 1 / Floor 3"\n'],
+                           [])
+        self.verify_output('stderr', [],
+                           self.default_ignores + self.ignore_outfile +
+                           self.ignore_lag_info + self.ignore_info_vlan_1 +
+                           self.ignore_port_mapping + self.ignore_stpd_info +
+                           self.ignore_unused_ports)
+
+    def test_case_108(self):  # banners with login ack
+        self.create_input('test.cfg', [
+            r'set banner login "***\n*** --- Login Banner ---\n***"' '\n'
+            r'set banner motd "***\n*** --- Message of the Day ---\n***"' '\n'
+        ])
+        ret = self.script_env.run(self.script, 'test.cfg', expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('test.xsf', [
+            'configure banner before-login acknowledge '
+            'save-to-configuration\n',
+            '***\n',
+            '*** --- Login Banner ---\n',
+            '***\n',
+            'Press RETURN to proceed to login\n',
+            '\n',
+            'configure banner after-login\n',
+            '***\n',
+            '*** --- Message of the Day ---\n',
+            '***\n',
+            '\n',
+        ], self.default_ignores)
+        self.verify_output('stderr', [],
+                           self.default_ignores + self.ignore_outfile +
+                           self.ignore_lag_info + self.ignore_info_vlan_1 +
+                           self.ignore_port_mapping + self.ignore_stpd_info +
+                           self.ignore_unused_ports)
+
+    def test_case_109(self):  # login banner w/o ack
+        self.create_input('test.cfg', [
+            r'set banner login "***\n*** --- Login Banner ---\n***"' '\n'
+        ])
+        ret = self.script_env.run(self.script, 'test.cfg', '--ignore-defaults',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('test.xsf', [
+            'configure banner before-login save-to-configuration\n',
+            '***\n',
+            '*** --- Login Banner ---\n',
+            '***\n',
+            '\n',
+        ], self.default_ignores)
+        self.verify_output('stderr', [],
+                           self.default_ignores + self.ignore_outfile +
+                           self.ignore_lag_info + self.ignore_info_vlan_1 +
+                           self.ignore_port_mapping + self.ignore_stpd_info +
+                           self.ignore_unused_ports)
+
+    def test_case_110(self):  # login banner w/o ack and empty line
+        self.create_input('test.cfg', [
+            r'set banner login "***\n\n*** --- Login Banner ---\n***"' '\n'
+        ])
+        ret = self.script_env.run(self.script, 'test.cfg', '--ignore-defaults',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('test.xsf', [
+            'configure banner before-login save-to-configuration\n',
+            '***\n',
+            '*** --- Login Banner ---\n',
+            '***\n',
+            '\n',
+        ], self.default_ignores)
+        self.verify_output('stderr', ['WARN: EXOS banner cannot contain empty'
+                                      ' lines, omitting empty lines\n'],
+                           self.default_ignores + self.ignore_outfile +
+                           self.ignore_lag_info + self.ignore_info_vlan_1 +
+                           self.ignore_port_mapping + self.ignore_stpd_info +
+                           self.ignore_unused_ports)
+
+    def test_case_111(self):  # disable telnet all with defaults
+        self.create_input('test.cfg', [
+            'set telnet disable all\n',
+        ])
+        ret = self.script_env.run(self.script, 'test.cfg',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('test.xsf', [
+            'disable telnet\n',
+        ], self.default_ignores)
+        self.verify_output('stderr', ['WARN: Outbound telnet cannot be '
+                                      'disabled on EXOS\n'],
+                           self.default_ignores + self.ignore_outfile +
+                           self.ignore_lag_info + self.ignore_info_vlan_1 +
+                           self.ignore_port_mapping + self.ignore_stpd_info +
+                           self.ignore_unused_ports)
+
+    def test_case_112(self):  # disable telnet all without defaults
+        self.create_input('test.cfg', [
+            'set telnet disable all\n',
+        ])
+        ret = self.script_env.run(self.script, 'test.cfg', '--ignore-defaults',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('test.xsf', [
+            'disable telnet\n',
+        ], self.default_ignores)
+        self.verify_output('stderr', ['WARN: Outbound telnet cannot be '
+                                      'disabled on EXOS\n'],
+                           self.default_ignores + self.ignore_outfile +
+                           self.ignore_lag_info + self.ignore_info_vlan_1 +
+                           self.ignore_port_mapping + self.ignore_stpd_info +
+                           self.ignore_unused_ports)
+
+    def test_case_113(self):  # disable telnet inbound with defaults
+        self.create_input('test.cfg', [
+            'set telnet disable inbound\n',
+        ])
+        ret = self.script_env.run(self.script, 'test.cfg',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('test.xsf', [
+            'disable telnet\n',
+        ], self.default_ignores)
+        self.verify_output('stderr', [],
+                           self.default_ignores + self.ignore_outfile +
+                           self.ignore_lag_info + self.ignore_info_vlan_1 +
+                           self.ignore_port_mapping + self.ignore_stpd_info +
+                           self.ignore_unused_ports)
+
+    def test_case_114(self):  # disable telnet inbound without defaults
+        self.create_input('test.cfg', [
+            'set telnet disable inbound\n',
+        ])
+        ret = self.script_env.run(self.script, 'test.cfg', '--ignore-defaults',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('test.xsf', [
+            'disable telnet\n',
+        ], self.default_ignores)
+        self.verify_output('stderr', [],
+                           self.default_ignores + self.ignore_outfile +
+                           self.ignore_lag_info + self.ignore_info_vlan_1 +
+                           self.ignore_port_mapping + self.ignore_stpd_info +
+                           self.ignore_unused_ports)
+
+    def test_case_115(self):  # disable telnet outbound with defaults
+        self.create_input('test.cfg', [
+            'set telnet disable outbound\n',
+        ])
+        ret = self.script_env.run(self.script, 'test.cfg',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('test.xsf', [], self.default_ignores)
+        self.verify_output('stderr', ['WARN: Outbound telnet cannot be '
+                                      'disabled on EXOS\n'],
+                           self.default_ignores + self.ignore_outfile +
+                           self.ignore_lag_info + self.ignore_info_vlan_1 +
+                           self.ignore_port_mapping + self.ignore_stpd_info +
+                           self.ignore_unused_ports)
+
+    def test_case_116(self):  # enable telnet outbound without defaults
+        self.create_input('test.cfg', [
+            'set telnet enable outbound\n',
+        ])
+        ret = self.script_env.run(self.script, 'test.cfg', '--ignore-defaults',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('test.xsf', [], self.default_ignores)
+        self.verify_output('stderr', [],
+                           self.default_ignores + self.ignore_outfile +
+                           self.ignore_lag_info + self.ignore_info_vlan_1 +
+                           self.ignore_port_mapping + self.ignore_stpd_info +
+                           self.ignore_unused_ports)
+
+    def test_case_117(self):  # disable telnet outbound without defaults verb.
+        self.create_input('test.cfg', [
+            'set telnet enable outbound\n',
+        ])
+        ret = self.script_env.run(self.script, 'test.cfg', '--ignore-defaults',
+                                  '--verbose', expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('test.xsf', [], self.default_ignores)
+        self.verify_output('stderr', ['INFO: Outbound telnet is always '
+                                      'enabled on EXOS\n'],
+                           self.default_ignores + self.ignore_outfile +
+                           self.ignore_lag_info + self.ignore_info_vlan_1 +
+                           self.ignore_port_mapping + self.ignore_stpd_info +
+                           self.ignore_unused_ports)
+
+    def test_case_118(self):  # enable telnet all without defaults
+        self.create_input('test.cfg', [
+            'set telnet enable all\n',
+        ])
+        ret = self.script_env.run(self.script, 'test.cfg', '--ignore-defaults',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('test.xsf', ['enable telnet\n'],
+                           self.default_ignores)
+        self.verify_output('stderr', [],
+                           self.default_ignores + self.ignore_outfile +
+                           self.ignore_lag_info + self.ignore_info_vlan_1 +
+                           self.ignore_port_mapping + self.ignore_stpd_info +
+                           self.ignore_unused_ports)
+
+    def test_case_119(self):  # enable telnet all without defaults verbose
+        self.create_input('test.cfg', [
+            'set telnet enable all\n',
+        ])
+        ret = self.script_env.run(self.script, 'test.cfg', '--ignore-defaults',
+                                  '--verbose', expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('test.xsf', ['enable telnet\n'],
+                           self.default_ignores)
+        self.verify_output('stderr', ['INFO: Outbound telnet is always '
+                                      'enabled on EXOS\n'],
+                           self.default_ignores + self.ignore_outfile +
+                           self.ignore_lag_info + self.ignore_info_vlan_1 +
+                           self.ignore_port_mapping + self.ignore_stpd_info +
+                           self.ignore_unused_ports)
+
+    def test_case_130(self):  # enable ssh
+        self.create_input('test.cfg', [
+            'set ssh enabled\n',
+        ])
+        ret = self.script_env.run(self.script, 'test.cfg',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('test.xsf', [
+            'configure ssh2 key\n',
+            'enable ssh2\n',
+        ], self.default_ignores)
+        self.verify_output('stderr',
+                           ['NOTICE: ssh.xmod needs to be installed for SSH' +
+                            ' commands to work\n'],
+                           self.default_ignores + self.ignore_outfile +
+                           self.ignore_lag_info + self.ignore_info_vlan_1 +
+                           self.ignore_port_mapping + self.ignore_stpd_info +
+                           self.ignore_unused_ports)
+
+    def test_case_131(self):  # verify defaults from empty input config
+        self.create_input('empty.cfg', [])
+        ret = self.script_env.run(self.script, 'empty.cfg',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('empty.xsf', self.default_config, [])
+        self.verify_output('stderr', self.default_messages,
+                           ['NOTICE: Writing translated configuration to'
+                            ' file "empty.xsf"'])
+
+    def test_case_132(self):  # disable webview
+        self.create_input('web.cfg', ['set webview disable\n'])
+        ret = self.script_env.run(self.script, 'web.cfg',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('web.xsf', ['disable web http\n'],
+                           self.jumbo_ignore + self.ignore_stpd +
+                           self.ignore_mgmt + self.ignore_idle)
+        self.verify_output('stderr', self.default_messages,
+                           ['NOTICE: Writing translated configuration to'
+                            ' file "web.xsf"'])
+
+    def test_case_133(self):  # enable webview
+        self.create_input('web.cfg', ['set webview enable\n'])
+        self.script_env.run(self.script, 'web.cfg', '--ignore-defaults',
+                            '--quiet')
+        self.verify_output('web.xsf', ['enable web http\n'],
+                           self.jumbo_ignore + self.ignore_stpd)
+
+    def test_case_134(self):  # enable webview and SSL
+        self.create_input('web.cfg',
+                          ['set ssl enabled\n', 'set webview enable\n'])
+        ret = self.script_env.run(self.script, 'web.cfg', '--ignore-defaults',
+                                  expect_stderr=True)
+        self.verify_output('web.xsf',
+                           ['enable web http\n', 'enable web https\n'],
+                           self.jumbo_ignore + self.ignore_stpd)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr',
+                           ['NOTICE: ssh.xmod needs to be installed for'
+                            ' HTTPS\n',
+                            'NOTICE: You need to manually create a'
+                            ' certificate for HTTPS to work (configure ssl'
+                            ' certificate)\n',
+                            ],
+                           self.default_ignores + self.ignore_outfile +
+                           self.ignore_lag_info + self.ignore_info_vlan_1 +
+                           self.ignore_port_mapping + self.ignore_stpd_info +
+                           self.ignore_unused_ports + self.def_map_msg)
+
+    def test_case_135(self):  # enable webview over SSL only, no defaults
+        self.create_input('web.cfg',
+                          ['set ssl enabled\n',
+                           'set webview enable ssl-only\n'])
+        self.script_env.run(self.script, 'web.cfg', '--ignore-defaults',
+                            '--quiet')
+        self.verify_output('web.xsf',
+                           ['disable web http\n', 'enable web https\n'],
+                           self.jumbo_ignore + self.ignore_stpd)
+
+    def test_case_136(self):  # enable webview over SSL only, with defaults
+        self.create_input('web.cfg',
+                          ['set ssl enabled\n',
+                           'set webview enable ssl-only\n'])
+        self.script_env.run(self.script, 'web.cfg', '--quiet')
+        self.verify_output('web.xsf',
+                           ['disable web http\n', 'enable web https\n'],
+                           self.jumbo_ignore + self.ignore_stpd +
+                           self.ignore_mgmt + self.ignore_idle)
+
+    def test_case_137(self):  # disable DHCP client for management
+        self.create_input('mgmt.cfg',
+                          ['set ip protocol none\n'])
+        self.script_env.run(self.script, 'mgmt.cfg', '--quiet')
+        self.verify_output('mgmt.xsf',
+                           [],
+                           self.jumbo_ignore + self.ignore_stpd +
+                           self.ignore_web + self.ignore_idle)
+
+    def test_case_138(self):  # enable BOOTP client for management
+        self.create_input('mgmt.cfg',
+                          ['set ip protocol bootp\n'])
+        self.script_env.run(self.script, 'mgmt.cfg', '--quiet')
+        self.verify_output('mgmt.xsf',
+                           ['enable bootp vlan Default\n'],
+                           self.jumbo_ignore + self.ignore_stpd +
+                           self.ignore_web + self.ignore_idle)
+
+    def test_case_139(self):  # enable DHCP client for management
+        self.create_input('mgmt.cfg',
+                          ['set ip protocol dhcp\n'])
+        self.script_env.run(self.script, 'mgmt.cfg', '--quiet')
+        self.verify_output('mgmt.xsf',
+                           ['enable dhcp vlan Default\n'],
+                           self.jumbo_ignore + self.ignore_stpd +
+                           self.ignore_web + self.ignore_idle)
+
+    def test_case_140(self):  # enable DHCP client for management
+        self.create_input('mgmt.cfg',
+                          ['set host vlan 1\n',
+                           'set ip protocol dhcp\n'])
+        self.script_env.run(self.script, 'mgmt.cfg', '--quiet',
+                            '--ignore-defaults')
+        self.verify_output('mgmt.xsf',
+                           ['enable dhcp vlan Default\n'],
+                           self.jumbo_ignore + self.ignore_stpd +
+                           self.ignore_web + self.ignore_idle)
+
+    def test_case_141(self):  # use management port
+        self.create_input('mgmt.cfg', [])
+        self.script_env.run(self.script, 'mgmt.cfg', '--quiet', '--mgmt-port')
+        self.verify_output('mgmt.xsf',
+                           ['enable dhcp vlan Mgmt\n'],
+                           self.jumbo_ignore + self.ignore_stpd +
+                           self.ignore_web + self.ignore_idle)
+
+    def test_case_142(self):  # static management address class C
+        self.create_input('mgmt.cfg',
+                          ['set ip protocol none\n',
+                           'set ip address 192.0.2.11\n'])
+        self.script_env.run(self.script, 'mgmt.cfg', '--quiet')
+        self.verify_output('mgmt.xsf',
+                           ['configure vlan Default ipaddress 192.0.2.11 '
+                            '255.255.255.0\n'],
+                           self.jumbo_ignore + self.ignore_stpd +
+                           self.ignore_web + self.ignore_idle)
+
+    def test_case_143(self):  # static management address class B
+        self.create_input('mgmt.cfg',
+                          ['set ip protocol none\n',
+                           'set ip address 172.30.12.42\n'])
+        self.script_env.run(self.script, 'mgmt.cfg', '--quiet')
+        self.verify_output('mgmt.xsf',
+                           ['configure vlan Default ipaddress 172.30.12.42 '
+                            '255.255.0.0\n'],
+                           self.jumbo_ignore + self.ignore_stpd +
+                           self.ignore_web + self.ignore_idle)
+
+    def test_case_144(self):  # static management address class A
+        self.create_input('mgmt.cfg',
+                          ['set ip protocol none\n',
+                           'set ip address 10.11.12.13\n'])
+        self.script_env.run(self.script, 'mgmt.cfg', '--quiet')
+        self.verify_output('mgmt.xsf',
+                           ['configure vlan Default ipaddress 10.11.12.13 '
+                            '255.0.0.0\n'],
+                           self.jumbo_ignore + self.ignore_stpd +
+                           self.ignore_web + self.ignore_idle)
+
+    def test_case_145(self):  # static management address with mask
+        self.create_input('mgmt.cfg',
+                          ['set ip protocol none\n',
+                           'set ip address 10.11.12.13 mask 255.255.254.0\n'])
+        self.script_env.run(self.script, 'mgmt.cfg', '--quiet')
+        self.verify_output('mgmt.xsf',
+                           ['configure vlan Default ipaddress 10.11.12.13 '
+                            '255.255.254.0\n'],
+                           self.jumbo_ignore + self.ignore_stpd +
+                           self.ignore_web + self.ignore_idle)
+
+    def test_case_146(self):  # static oob management address with mask
+        self.create_input('mgmt.cfg',
+                          ['set ip protocol none\n',
+                           'set ip address 10.11.12.13 mask 255.255.254.0\n'])
+        self.script_env.run(self.script, 'mgmt.cfg', '--quiet', '--mgmt-port')
+        self.verify_output('mgmt.xsf',
+                           ['configure vlan Mgmt ipaddress 10.11.12.13 '
+                            '255.255.254.0\n'],
+                           self.jumbo_ignore + self.ignore_stpd +
+                           self.ignore_web + self.ignore_idle)
+
+    def test_case_147(self):  # static management address with mask and gateway
+        self.create_input('mgmt.cfg',
+                          ['set ip protocol none\n',
+                           'set ip address 10.11.12.13 mask 255.255.254.0 '
+                           'gateway 10.11.13.254\n'])
+        self.script_env.run(self.script, 'mgmt.cfg', '--quiet', '--mgmt-port')
+        self.verify_output('mgmt.xsf',
+                           ['configure vlan Mgmt ipaddress 10.11.12.13 '
+                            '255.255.254.0\n',
+                            'configure iproute add default 10.11.13.254 vr '
+                            'VR-Mgmt\n'],
+                           self.jumbo_ignore + self.ignore_stpd +
+                           self.ignore_web + self.ignore_idle)
+
+    def test_case_148(self):  # static management address with mask and gateway
+        self.create_input('mgmt.cfg',
+                          ['set ip protocol none\n',
+                           'set ip address 10.11.12.13 mask 255.255.254.0 '
+                           'gateway 10.11.13.254\n'])
+        self.script_env.run(self.script, 'mgmt.cfg', '--quiet')
+        self.verify_output('mgmt.xsf',
+                           ['configure vlan Default ipaddress 10.11.12.13 '
+                            '255.255.254.0\n',
+                            'configure iproute add default 10.11.13.254\n',
+                            ],
+                           self.jumbo_ignore + self.ignore_stpd +
+                           self.ignore_web + self.ignore_idle)
+
+    def test_case_149(self):  # static management address with mask and VLAN
+        self.create_input('mgmt.cfg',
+                          ['set ip protocol none\n',
+                           'set vlan create 2\n',
+                           'set vlan name 2 Admin\n',
+                           'set host vlan 2\n',
+                           'set ip address 10.11.12.13 mask 255.255.254.0\n'])
+        self.script_env.run(self.script, 'mgmt.cfg', '--quiet')
+        self.verify_output('mgmt.xsf',
+                           ['create vlan Admin tag 2\n',
+                            'configure vlan Admin ipaddress 10.11.12.13 '
+                            '255.255.254.0\n'],
+                           self.jumbo_ignore + self.ignore_stpd +
+                           self.ignore_web + self.ignore_idle)
+
+    def test_case_150(self):  # disable idle timeout
+        self.create_input('idle.cfg',
+                          ['set logout 0\n'])
+        self.script_env.run(self.script, 'idle.cfg', '--log-level=WARN')
+        self.verify_output('idle.xsf',
+                           ['disable idletimeout\n'],
+                           self.jumbo_ignore + self.ignore_stpd +
+                           self.ignore_web + self.ignore_mgmt)
+
+    def test_case_151(self):  # idle timeout 20
+        self.create_input('idle.cfg',
+                          ['set logout 20\n'])
+        self.script_env.run(self.script, 'idle.cfg', '--log-level=WARN')
+        self.verify_output('idle.xsf',
+                           [],
+                           self.jumbo_ignore + self.ignore_stpd +
+                           self.ignore_web + self.ignore_mgmt)
+
+    def test_case_152(self):  # idle timeout 160
+        self.create_input('idle.cfg',
+                          ['set logout 160\n'])
+        self.script_env.run(self.script, 'idle.cfg', '--log-level=WARN')
+        self.verify_output('idle.xsf',
+                           ['configure idletimeout 160\n'],
+                           self.jumbo_ignore + self.ignore_stpd +
+                           self.ignore_web + self.ignore_mgmt)
+
+    def test_case_153(self):  # no warning if sysName oequals prompt
+        self.create_input('prompt.cfg',
+                          ['set system name Switch01\n',
+                           'set prompt Switch01\n'])
+        ret = self.script_env.run(self.script, 'prompt.cfg',
+                                  '--ignore-defaults',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('prompt.xsf',
+                           ['configure snmp sysName "Switch01"\n'],
+                           [])
+        self.verify_output('stderr', [],
+                           self.default_ignores + self.ignore_outfile +
+                           self.ignore_lag_info + self.ignore_info_vlan_1 +
+                           self.ignore_port_mapping + self.ignore_stpd_info +
+                           self.ignore_unused_ports)
+
+    def test_case_154(self):  # syslog server
+        self.create_input('syslog.cfg',
+                          ['set logging server 1 ip-addr 192.0.2.33 state '
+                           'enable\n',
+                           ])
+        self.script_env.run(self.script, 'syslog.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('syslog.xsf',
+                           ['configure syslog add 192.0.2.33:514 local4\n',
+                            'configure log target syslog 192.0.2.33:514 local4'
+                            ' severity debug-data\n',
+                            'enable log target syslog 192.0.2.33:514 local4\n',
+                            ],
+                           [])
+
+    def test_case_155(self):  # syslog server facility local7
+        self.create_input('syslog.cfg',
+                          ['set logging server 1 ip-addr 192.0.2.33 state '
+                           'enable facility local7\n',
+                           ])
+        self.script_env.run(self.script, 'syslog.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('syslog.xsf',
+                           ['configure syslog add 192.0.2.33:514 local7\n',
+                            'configure log target syslog 192.0.2.33:514 local7'
+                            ' severity debug-data\n',
+                            'enable log target syslog 192.0.2.33:514 local7\n',
+                            ],
+                           [])
+
+    def test_case_156(self):  # syslog server non-standard port
+        self.create_input('syslog.cfg',
+                          ['set logging server 1 ip-addr 192.0.2.33 state '
+                           'enable port 4711\n',
+                           ])
+        self.script_env.run(self.script, 'syslog.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('syslog.xsf',
+                           ['configure syslog add 192.0.2.33:4711 local4\n',
+                            'configure log target syslog 192.0.2.33:4711 '
+                            'local4 severity debug-data\n',
+                            'enable log target syslog 192.0.2.33:4711 '
+                            'local4\n',
+                            ],
+                           [])
+
+    def test_case_157(self):  # syslog server severity 5
+        self.create_input('syslog.cfg',
+                          ['set logging server 1 ip-addr 192.0.2.33 state '
+                           'enable severity 5\n',
+                           ])
+        self.script_env.run(self.script, 'syslog.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('syslog.xsf',
+                           ['configure syslog add 192.0.2.33:514 local4\n',
+                            'configure log target syslog 192.0.2.33:514 local4'
+                            ' severity warning\n',
+                            'enable log target syslog 192.0.2.33:514 local4\n',
+                            ],
+                           [])
+
+    def test_case_158(self):  # disabled syslog server
+        self.create_input('syslog.cfg',
+                          ['set logging server 1 ip-addr 192.0.2.33\n',
+                           ])
+        self.script_env.run(self.script, 'syslog.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('syslog.xsf',
+                           ['configure syslog add 192.0.2.33:514 local4\n',
+                            'configure log target syslog 192.0.2.33:514 local4'
+                            ' severity debug-data\n',
+                            ],
+                           [])
+
+    def test_case_159(self):  # sntp server
+        self.create_input('sntp.cfg',
+                          ['set sntp server 192.0.2.33\n',
+                           ])
+        self.script_env.run(self.script, 'sntp.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('sntp.xsf',
+                           ['configure sntp-client primary 192.0.2.33\n',
+                            ],
+                           [])
+
+    def test_case_160(self):  # two sntp servers
+        self.create_input('sntp.cfg',
+                          ['set sntp server 192.0.2.33\n',
+                           'set sntp server 192.0.2.34\n',
+                           ])
+        self.script_env.run(self.script, 'sntp.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('sntp.xsf',
+                           ['configure sntp-client primary 192.0.2.33\n',
+                            'configure sntp-client secondary 192.0.2.34\n',
+                            ],
+                           [])
+
+    def test_case_161(self):  # two sntp servers and precedence
+        self.create_input('sntp.cfg',
+                          ['set sntp server 192.0.2.34 precedence 5\n',
+                           'set sntp server 192.0.2.33\n',
+                           ])
+        self.script_env.run(self.script, 'sntp.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('sntp.xsf',
+                           ['configure sntp-client primary 192.0.2.33\n',
+                            'configure sntp-client secondary 192.0.2.34\n',
+                            ],
+                           [])
+
+    def test_case_162(self):  # precendence in separate command
+        self.create_input('sntp.cfg',
+                          ['set sntp server 192.0.2.34\n',
+                           'set sntp server 192.0.2.33\n',
+                           'set sntp server 192.0.2.34 precedence 10\n',
+                           ])
+        self.script_env.run(self.script, 'sntp.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('sntp.xsf',
+                           ['configure sntp-client primary 192.0.2.33\n',
+                            'configure sntp-client secondary 192.0.2.34\n',
+                            ],
+                           [])
+
+    def test_case_163(self):  # ignore SNTP key
+        self.create_input('sntp.cfg',
+                          ['set sntp server 192.0.2.34\n',
+                           'set sntp server 192.0.2.33\n',
+                           'set sntp server 192.0.2.34 precedence 10\n',
+                           'set sntp server 192.0.2.33 key 1\n',
+                           ])
+        ret = self.script_env.run(self.script, 'sntp.cfg',
+                                  '--ignore-defaults', '--log-level=WARN',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr',
+                           ['WARN: Ignoring SNTP server key (set sntp server'
+                            ' 192.0.2.33 key 1)\n'],
+                           [])
+        self.verify_output('sntp.xsf',
+                           ['configure sntp-client primary 192.0.2.33\n',
+                            'configure sntp-client secondary 192.0.2.34\n',
+                            ],
+                           [])
+
+    def test_case_164(self):  # two sntp servers with precedence
+        self.create_input('sntp.cfg',
+                          ['set sntp server 192.0.2.34 precedence 5\n',
+                           'set sntp server 192.0.2.33 precedence 6\n',
+                           ])
+        self.script_env.run(self.script, 'sntp.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('sntp.xsf',
+                           ['configure sntp-client primary 192.0.2.34\n',
+                            'configure sntp-client secondary 192.0.2.33\n',
+                            ],
+                           [])
+
+    def test_case_165(self):  # broadcast SNTP client
+        self.create_input('sntp.cfg',
+                          ['set sntp client broadcast\n',
+                           ])
+        self.script_env.run(self.script, 'sntp.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('sntp.xsf',
+                           ['enable sntp-client\n',
+                            ],
+                           [])
+
+    def test_case_166(self):  # disable SNTP client
+        self.create_input('sntp.cfg',
+                          ['set sntp client disable\n',
+                           ])
+        self.script_env.run(self.script, 'sntp.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('sntp.xsf',
+                           ['disable sntp-client\n',
+                            ],
+                           [])
+
+    def test_case_167(self):  # unicast SNTP client
+        self.create_input('sntp.cfg',
+                          ['set sntp client unicast\n',
+                           'set sntp server 192.0.2.42\n',
+                           ])
+        self.script_env.run(self.script, 'sntp.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('sntp.xsf',
+                           ['configure sntp-client primary 192.0.2.42\n',
+                            'enable sntp-client\n',
+                            ],
+                           [])
+
+    def test_case_168(self):  # unicast SNTP client w/o server
+        self.create_input('sntp.cfg',
+                          ['set sntp client unicast\n',
+                           ])
+        ret = self.script_env.run(self.script, 'sntp.cfg',
+                                  '--ignore-defaults', '--log-level=WARN',
+                                  expect_error=True, expect_stderr=True)
+        self.verify_output('sntp.xsf', [], [])
+        self.assertEqual(ret.returncode, 1, "Wrong exit code")
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr',
+                           ['ERROR: At least one SNTP server needed for '
+                            'unicast SNTP client\n',
+                            'WARN: SNTP client mode "unicast" omitted from '
+                            'translation\n',
+                            ],
+                           [])
+
+    def test_case_169(self):  # broadcast SNTP client w/server
+        self.create_input('sntp.cfg',
+                          ['set sntp client broadcast\n',
+                           'set sntp server 192.0.2.42\n',
+                           ])
+        ret = self.script_env.run(self.script, 'sntp.cfg',
+                                  '--ignore-defaults', '--log-level=WARN',
+                                  expect_stderr=True)
+        self.verify_output('sntp.xsf',
+                           ['configure sntp-client primary 192.0.2.42\n',
+                            'enable sntp-client\n',
+                            ],
+                           [])
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr',
+                           ['WARN: EXOS uses unicast SNTP if an SNTP server is'
+                            ' configured\n'
+                            ],
+                           [])
+
+    def test_case_170(self):  # SVI IP
+        self.create_input('svi.cfg',
+                          ['router\n', 'enable\n', 'configure\n',
+                           'ip routing\n',
+                           'interface vlan 42\n',
+                           'ip address 192.0.2.42 255.255.255.192\n',
+                           'no shutdown\n',
+                           'exit\n', 'exit\n', 'exit\n', 'exit\n',
+                           ])
+        self.script_env.run(self.script, 'svi.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('svi.xsf',
+                           ['create vlan VLAN_0042 tag 42\n',
+                            'configure vlan VLAN_0042 ipaddress 192.0.2.42'
+                            ' 255.255.255.192\n',
+                            'enable ipforwarding vlan VLAN_0042\n',
+                            ],
+                           [])
+
+    def test_case_171(self):  # SVI IP w/secondaries
+        self.create_input('svi.cfg',
+                          ['router\n', 'enable\n', 'configure\n',
+                           'ip routing\n',
+                           'interface vlan 42\n',
+                           'ip address 192.0.2.1 255.255.255.192\n',
+                           'ip address 192.0.2.65 255.255.255.192 secondary\n',
+                           'ip address 192.0.2.129 255.255.255.192\n',
+                           'no shutdown\n',
+                           'exit\n', 'exit\n', 'exit\n', 'exit\n',
+                           ])
+        self.script_env.run(self.script, 'svi.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('svi.xsf',
+                           ['create vlan VLAN_0042 tag 42\n',
+                            'configure vlan VLAN_0042 ipaddress 192.0.2.1'
+                            ' 255.255.255.192\n',
+                            'enable ipforwarding vlan VLAN_0042\n',
+                            'configure vlan VLAN_0042 add secondary-ipaddress'
+                            ' 192.0.2.65 255.255.255.192\n',
+                            'configure vlan VLAN_0042 add secondary-ipaddress'
+                            ' 192.0.2.129 255.255.255.192\n',
+                            ],
+                           [])
+
+    def test_case_172(self):  # SVI and host IP on same VLAN
+        self.create_input('svi.cfg',
+                          ['set host vlan 1\n',
+                           'set ip address 10.0.0.1 mask 255.255.255.0\n',
+                           'router\n', 'enable\n', 'configure\n',
+                           'ip routing\n',
+                           'interface vlan 1\n',
+                           'ip address 192.0.2.42 255.255.255.192\n',
+                           'exit\n', 'exit\n', 'exit\n', 'exit\n',
+                           ])
+        ret = self.script_env.run(self.script, 'svi.cfg',
+                                  '--ignore-defaults', '--log-level=WARN',
+                                  expect_error=True, expect_stderr=True)
+        self.verify_output('svi.xsf',
+                           ['configure vlan Default ipaddress 192.0.2.42'
+                            ' 255.255.255.192\n',
+                            'enable ipforwarding vlan Default\n',
+                            ],
+                           [])
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr',
+                           ['WARN: EXOS cannot disable switched virtual '
+                            'interfaces, ignoring shutdown state of interface'
+                            ' VLAN 1\n',
+                            'ERROR: Both SVI and host management IP '
+                            'configured for the same VLAN (Default)\n',
+                            'WARN: Management IP address "10.0.0.1" omitted '
+                            'from translation\n',
+                            'WARN: Management Netmask "255.255.255.0" omitted'
+                            ' from translation\n',
+                            'WARN: Management VLAN "1" omitted from '
+                            'translation\n',
+                            ],
+                           [])
+
+    def test_case_173(self):  # Loopback IP
+        self.create_input('loopback.cfg',
+                          ['router\n', 'enable\n', 'configure\n',
+                           'ip routing\n',
+                           'interface loopback 4\n',
+                           'ip address 192.0.2.42 255.255.255.192\n',
+                           'no shutdown\n',
+                           'exit\n', 'exit\n', 'exit\n', 'exit\n',
+                           ])
+        self.script_env.run(self.script, 'loopback.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('loopback.xsf',
+                           ['create vlan Interface_Loopback_4\n',
+                            'enable loopback-mode vlan Interface_Loopback_4\n',
+                            'configure vlan Interface_Loopback_4 ipaddress'
+                            ' 192.0.2.42 255.255.255.192\n',
+                            'enable ipforwarding vlan Interface_Loopback_4\n',
+                            ],
+                           [])
+
+    def test_case_174(self):  # Loopback IP w/secondaries
+        self.create_input('loopback.cfg',
+                          ['router\n', 'enable\n', 'configure\n',
+                           'ip routing\n',
+                           'interface loopback 2\n',
+                           'ip address 192.0.2.1 255.255.255.192\n',
+                           'ip address 192.0.2.65 255.255.255.192 secondary\n',
+                           'ip address 192.0.2.129 255.255.255.192\n',
+                           'no shutdown\n',
+                           'exit\n', 'exit\n', 'exit\n', 'exit\n',
+                           ])
+        self.script_env.run(self.script, 'loopback.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('loopback.xsf',
+                           ['create vlan Interface_Loopback_2\n',
+                            'enable loopback-mode vlan Interface_Loopback_2\n',
+                            'configure vlan Interface_Loopback_2 ipaddress '
+                            '192.0.2.1'
+                            ' 255.255.255.192\n',
+                            'enable ipforwarding vlan Interface_Loopback_2\n',
+                            'configure vlan Interface_Loopback_2 add '
+                            'secondary-ipaddress 192.0.2.65 255.255.255.192\n',
+                            'configure vlan Interface_Loopback_2 add '
+                            'secondary-ipaddress 192.0.2.129 '
+                            '255.255.255.192\n',
+                            ],
+                           [])
+
+    def test_case_175(self):  # SVI w/DHCP relay
+        self.create_input('iphelper.cfg',
+                          ['router\n', 'enable\n', 'configure\n',
+                           'ip routing\n',
+                           'interface vlan 42\n',
+                           'ip address 192.0.2.42 255.255.255.192\n',
+                           'ip helper-address 192.0.2.11\n',
+                           'no shutdown\n',
+                           'exit\n', 'exit\n', 'exit\n', 'exit\n',
+                           ])
+        ret = self.script_env.run(self.script, 'iphelper.cfg',
+                                  '--ignore-defaults', '--log-level=NOTICE',
+                                  expect_stderr=True)
+        self.verify_output('iphelper.xsf',
+                           ['create vlan VLAN_0042 tag 42\n',
+                            'configure vlan VLAN_0042 ipaddress 192.0.2.42'
+                            ' 255.255.255.192\n',
+                            'enable ipforwarding vlan VLAN_0042\n',
+                            'configure bootprelay add 192.0.2.11\n',
+                            'enable bootprelay all\n',
+                            ],
+                           [])
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr',
+                           ['NOTICE: EXOS uses a global list of BOOTP / DHCP'
+                            ' relay servers instead of per VLAN relay '
+                            'servers\n',
+                            'NOTICE: enabling BOOTP / DHCP relay on all '
+                            'VLANs\n',
+                            ],
+                           ['Port', 'port', 'translated'])
+
+    def test_case_176(self):  # two SVIs w/DHCP relay
+        self.create_input('iphelper.cfg',
+                          ['router\n', 'enable\n', 'configure\n',
+                           'ip routing\n',
+                           'interface vlan 1\n',
+                           'ip address 10.0.0.1 255.255.255.0\n',
+                           'ip helper-address 10.0.0.254\n',
+                           'no shutdown\n',
+                           'exit\n',
+                           'interface vlan 42\n',
+                           'ip address 192.0.2.42 255.255.255.0\n',
+                           'ip helper-address 192.0.2.11\n',
+                           'no shutdown\n',
+                           'exit\n', 'exit\n', 'exit\n', 'exit\n',
+                           ])
+        ret = self.script_env.run(self.script, 'iphelper.cfg',
+                                  '--ignore-defaults', '--log-level=NOTICE',
+                                  expect_stderr=True)
+        self.verify_output('iphelper.xsf',
+                           ['configure vlan Default ipaddress 10.0.0.1'
+                            ' 255.255.255.0\n',
+                            'enable ipforwarding vlan Default\n',
+                            'configure bootprelay add 10.0.0.254\n',
+                            'create vlan VLAN_0042 tag 42\n',
+                            'configure vlan VLAN_0042 ipaddress 192.0.2.42'
+                            ' 255.255.255.0\n',
+                            'enable ipforwarding vlan VLAN_0042\n',
+                            'configure bootprelay add 192.0.2.11\n',
+                            'enable bootprelay all\n',
+                            ],
+                           [])
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr',
+                           ['NOTICE: EXOS uses a global list of BOOTP / DHCP'
+                            ' relay servers instead of per VLAN relay '
+                            'servers\n',
+                            'NOTICE: enabling BOOTP / DHCP relay on all '
+                            'VLANs\n',
+                            ],
+                           ['Port', 'port', 'translated'])
+
+    def test_case_177(self):  # no ip routing w/SVI
+        self.create_input('svi.cfg',
+                          ['router\n', 'enable\n', 'configure\n',
+                           'no ip routing\n',
+                           'interface vlan 42\n',
+                           'ip address 192.0.2.42 255.255.255.192\n',
+                           'no shutdown\n',
+                           'exit\n', 'exit\n', 'exit\n', 'exit\n',
+                           ])
+        self.script_env.run(self.script, 'svi.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('svi.xsf',
+                           ['create vlan VLAN_0042 tag 42\n',
+                            'configure vlan VLAN_0042 ipaddress 192.0.2.42'
+                            ' 255.255.255.192\n',
+                            ],
+                           [])
+
+    def test_case_178(self):  # no ip routing w/Loopback
+        self.create_input('loopback.cfg',
+                          ['router\n', 'enable\n', 'configure\n',
+                           'no ip routing\n',
+                           'interface loopback 4\n',
+                           'ip address 192.0.2.42 255.255.255.192\n',
+                           'no shutdown\n',
+                           'exit\n', 'exit\n', 'exit\n', 'exit\n',
+                           ])
+        self.script_env.run(self.script, 'loopback.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('loopback.xsf',
+                           ['create vlan Interface_Loopback_4\n',
+                            'enable loopback-mode vlan Interface_Loopback_4\n',
+                            'configure vlan Interface_Loopback_4 ipaddress'
+                            ' 192.0.2.42 255.255.255.192\n',
+                            ],
+                           [])
+
+    def test_case_179(self):  # IPv4 static routes
+        self.create_input('routes.cfg',
+                          ['router\n', 'enable\n', 'configure\n',
+                           'ip routing\n',
+                           'ip route 0.0.0.0 0.0.0.0 192.0.2.101\n',
+                           'ip route 10.0.0.0 255.0.0.0 192.0.2.202\n',
+                           'interface vlan 1\n',
+                           'ip address 192.0.2.42 255.255.255.0\n',
+                           'no shutdown\n',
+                           'exit\n', 'exit\n', 'exit\n', 'exit\n',
+                           ])
+        self.script_env.run(self.script, 'routes.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('routes.xsf',
+                           ['configure vlan Default ipaddress 192.0.2.42'
+                            ' 255.255.255.0\n',
+                            'enable ipforwarding vlan Default\n',
+                            'configure iproute add default 192.0.2.101\n',
+                            'configure iproute add 10.0.0.0 255.0.0.0'
+                            ' 192.0.2.202\n',
+                            ],
+                           [])
 
 
 if __name__ == '__main__':

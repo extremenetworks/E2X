@@ -163,51 +163,55 @@ class EosSwitch_test(unittest.TestCase):
 
     def test_expand_set_lacp_static_variant_1_ok(self):
         arg = 'set lacp static lag.0.5'
-        expectedErrList = [arg]
+        expectedErrList = []
         expExpandedList = ['set lacp static lag.0.5',
                            'set lacp aadminkey lag.0.5 5']
-        expected = (expExpandedList, expectedErrList)
 
-        (expandedList, errList) = self.sw._expand_set_lacp_static(arg)
+        (expandedList, errors) = self.sw._expand_set_lacp_static(arg)
+        errList = [e for e in errors if not e.startswith('DEBUG')]
 
         self.assertEqual(expExpandedList, expandedList)
+        self.assertEqual(expectedErrList, errList)
 
     def test_expand_set_lacp_static_variant_2_ok(self):
         arg = 'set lacp static lag.0.6 ge.1.6'
-        expectedErrList = [arg]
+        expectedErrList = []
         expExpandedList = ['set lacp static lag.0.6',
                            'set lacp aadminkey lag.0.6 6',
                            'set port lacp port ge.1.6 aadminkey 6',
                            'set port lacp port ge.1.6 disable']
-        expected = (expExpandedList, expectedErrList)
 
-        (expandedList, errList) = self.sw._expand_set_lacp_static(arg)
+        (expandedList, errors) = self.sw._expand_set_lacp_static(arg)
+        errList = [e for e in errors if not e.startswith('DEBUG')]
 
         self.assertEqual(expExpandedList, expandedList)
+        self.assertEqual(expectedErrList, errList)
 
     def test_expand_set_lacp_static_variant_3_ok(self):
         arg = 'set lacp static lag.0.5 key 42'
-        expectedErrList = [arg]
+        expectedErrList = []
         expExpandedList = ['set lacp static lag.0.5',
                            'set lacp aadminkey lag.0.5 42']
-        expected = (expExpandedList, expectedErrList)
 
-        (expandedList, errList) = self.sw._expand_set_lacp_static(arg)
+        (expandedList, errors) = self.sw._expand_set_lacp_static(arg)
+        errList = [e for e in errors if not e.startswith('DEBUG')]
 
         self.assertEqual(expExpandedList, expandedList)
+        self.assertEqual(expectedErrList, errList)
 
     def test_expand_set_lacp_static_variant_4_ok(self):
         arg = 'set lacp static lag.0.5 key 4711 tg.1.49-50'
-        expectedErrList = [arg]
+        expectedErrList = []
         expExpandedList = ['set lacp static lag.0.5',
                            'set lacp aadminkey lag.0.5 4711',
                            'set port lacp port tg.1.49-50 aadminkey 4711',
                            'set port lacp port tg.1.49-50 disable']
-        expected = (expExpandedList, expectedErrList)
 
-        (expandedList, errList) = self.sw._expand_set_lacp_static(arg)
+        (expandedList, errors) = self.sw._expand_set_lacp_static(arg)
+        errList = [e for e in errors if not e.startswith('DEBUG')]
 
         self.assertEqual(expExpandedList, expandedList)
+        self.assertEqual(expectedErrList, errList)
 
     def test_expand_set_lacp_static_fail_too_few_parameter(self):
         arg = 'set lacp static'

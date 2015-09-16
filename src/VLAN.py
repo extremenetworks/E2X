@@ -46,13 +46,20 @@ class VLAN():
         self._ingress_ports = []
         self._switch = switch
         self._ipv4_acl_in = []
+        self._ipv4_addresses = []
+        self._ipv4_helper_addresses = []
+        self._svi_shutdown = None
 
     def __str__(self):
         description = 'Name: ' + str(self._name) + ', '
         description += 'Tag: ' + str(self._tag) + ', '
         description += 'Egress ports: ' + str(self._egress_ports) + ', '
         description += 'Ingress ports: ' + str(self._ingress_ports) + ', '
-        description += 'IPv4 ACL in: ' + str(self._ipv4_acl_in)
+        description += 'IPv4 ACL in: ' + str(self._ipv4_acl_in) + ', '
+        description += 'IPv4 addresses: ' + str(self._ipv4_addresses) + ', '
+        description += ('IPv4 helper addresses: ' +
+                        str(self._ipv4_helper_addresses) + ', ')
+        description += 'SVI shutdown: ' + str(self._svi_shutdown)
         return description
 
     def get_name(self):
@@ -91,7 +98,10 @@ class VLAN():
         lst = self._get_list(direction)
         if lst is None:
             return None
-        pred = lambda x, y: y == 'all' or x == y
+
+        def pred(x, y):
+            return y == 'all' or x == y
+
         ret = [pname[0] for pname in lst if pred(pname[1], tagged)]
         return ret
 
@@ -105,7 +115,7 @@ class VLAN():
         lst = self._get_list(direction)
         if lst is None:
             return False
-        if tagged not in ['tagged', 'untagged']:
+        if tagged not in {'tagged', 'untagged'}:
             return False
         if (name, tagged) not in lst:
             lst.append((name, tagged))
@@ -122,14 +132,14 @@ class VLAN():
         if lst is None:
             return False
 
-        if tagged not in ['all', 'tagged', 'untagged']:
+        if tagged not in {'all', 'tagged', 'untagged'}:
             return False
-        if tagged in ['all', 'tagged']:
+        if tagged in {'all', 'tagged'}:
             try:
                 lst.remove((name, 'tagged'))
             except:
                 pass
-        if tagged in ['all', 'untagged']:
+        if tagged in {'all', 'untagged'}:
             try:
                 lst.remove((name, 'untagged'))
             except:
@@ -209,6 +219,42 @@ class VLAN():
             self._ipv4_acl_in.remove(identifier)
         return self._ipv4_acl_in
 
+    def get_ipv4_addresses(self):
+        return self._ipv4_addresses
+
+    def set_ipv4_addresses(self, address_list):
+        self._ipv4_addresses = list(address_list)
+
+    def get_ipv4_address(self, index):
+        """Return the IPv4 address at a given list index."""
+        if index < len(self._ipv4_addresses):
+            return self._ipv4_addresses[index]
+
+    def add_ipv4_address(self, ip, netmask):
+        """Add an IPv4 address. First address in list is primary."""
+        self._ipv4_addresses.append((ip, netmask))
+
+    def get_ipv4_helper_addresses(self):
+        return self._ipv4_helper_addresses
+
+    def set_ipv4_helper_addresses(self, address_list):
+        self._ipv4_helper_addresses = list(address_list)
+
+    def get_ipv4_helper_address(self, index):
+        """Return the IPv4 helper address at a given list index."""
+        if index < len(self._ipv4_helper_addresses):
+            return self._ipv4_helper_addresses[index]
+
+    def add_ipv4_helper_address(self, ip):
+        """Add an IPv4 helper address. First address in list is primary."""
+        self._ipv4_helper_addresses.append(ip)
+
+    def get_svi_shutdown(self):
+        return self._svi_shutdown
+
+    def set_svi_shutdown(self, shutdown):
+        self._svi_shutdown = shutdown
+
     def transfer_config(self, from_vlan, port_mapping, lag_mapping,
                         unmapped_ports):
         ret = []
@@ -216,6 +262,9 @@ class VLAN():
         self._name_is_default = from_vlan.has_default_name()
         self._tag = from_vlan.get_tag()
         self._ipv4_acl_in = from_vlan.get_ipv4_acl_in()
+        self._ipv4_addresses = from_vlan.get_ipv4_addresses()
+        self._ipv4_helper_addresses = from_vlan.get_ipv4_helper_addresses()
+        self._svi_shutdown = from_vlan.get_svi_shutdown()
         # XOS reuses the names of physical ports for LAG names,
         # so remove source ports from the port_mapping, if the same
         # target port is mapped in lag_mapping as well

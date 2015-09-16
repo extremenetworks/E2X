@@ -7,7 +7,17 @@ configuration. Main intention is to help migrating from Enterasys Networks
 (now Extreme Networks) SecureStack or similar to Extreme Networks Summit
 Series switches.
 
-## Reference Platforms
+## System Requirements
+
+E2X is implemented in Python 3, with a minimum required version of 3.3.
+Development and testing is primarily done on GNU/Linux systems, with
+additional testing on Windows and Mac OS X.
+
+## Switch Platforms
+
+Translation of switch configurations uses models of specific switches.
+This is used for mapping ports (equivalent Enterasys and Extreme switches
+have slight differences in port configurations).
 
 The reference source platform for E2X is a C5K125-48P2 switch (C-Series
 switch with 48 triple speed ports with PoE (including 2 combo ports),
@@ -17,17 +27,44 @@ The reference target platform is a Summit X460-48p switch with an
 XGM3S-2SF uplink module (Summit Series switch with 48 triple speed ports
 with PoE, 4 SFP ports, and 2 SFP+ uplink ports).
 
-## System Requirements
-
-E2X is implemented in Python 3, with a minimum required version of 3.3.
-Development and testing is primarily done on GNU/Linux systems, with
-additional testing on Windows and Mac OS X.
-
 ## Documentation
 
 Documentation for E2X can be found in the [docs/](docs/) directory.
 There you find a [user manual](docs/Manual.md) and a [development
-document](docs/Development.md).
+document](docs/Development.md), as well as
+[release notes](docs/ReleaseNotes.md).
+
+### Quick Start
+
+E2X is a command line application written in Python 3. An installation of
+Python 3.3 or newer is needed to start E2X.
+
+```
+$ e2x.py
+# Enter EOS configuration commands, one per line.
+# End with CTRL+D (sometimes needed twice)
+```
+
+### Interactive Mode
+
+The interactive mode, intended as an interactive translation reference,
+is started using the option `--interactive`:
+
+```
+$ e2x.py --interactive
+e2x v0.7.1
+Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
+Use is subject to license terms.
+This is free software, licensed under CDDL 1.0
+
+% Command translation assumes VLAN 1 for management
+
+Enter "HowTos" to show list
+Enter number from "1" to "6" to select HowTo
+Enter "q" to quit
+
+e2x>
+```
 
 ### Online Help
 
@@ -35,11 +72,13 @@ E2X prints a short help message if the option `--help` is used:
 
 ```
 $ e2x.py --help
-usage: e2x [-h] [-V] [-q] [-v] [-D] [--source SOURCE] [--target TARGET]
-           [-o OUTFILE] [-d OUTDIR] [--sfp-list SFP_LIST] [--ignore-defaults]
-           [--keep-unknown-lines] [--comment-unknown-lines]
-           [--err-unknown-lines] [--err-warnings] [--messages-as-comments]
-           [--abort-on-error] [--disable-unused-ports]
+usage: e2x [-h] [-V] [-q] [-v] [-D]
+           [--log-level {DEBUG,INFO,NOTICE,WARN,ERROR}] [--source SOURCE]
+           [--target TARGET] [-o OUTFILE] [-d OUTDIR] [--sfp-list SFP_LIST]
+           [--ignore-defaults] [--keep-unknown-lines]
+           [--comment-unknown-lines] [--err-unknown-lines] [--err-warnings]
+           [--messages-as-comments] [--abort-on-error]
+           [--disable-unused-ports] [--interactive]
            [FILE [FILE ...]]
 
 Translate ExtremeEOS switch configuration commands to ExtremeXOS. If no
@@ -62,12 +101,16 @@ optional arguments:
   -q, --quiet           suppress non-error messages
   -v, --verbose         print informational messages
   -D, --debug           print debug information
+  --log-level {DEBUG,INFO,NOTICE,WARN,ERROR}
+                        print messages with log level equal or higher than
+                        LOG_LEVEL
   --source SOURCE       source switch model (default C5K125-48P2)
   --target TARGET       target switch model (default SummitX460-48p+2sf)
   -o OUTFILE, --outfile OUTFILE
                         specify non-default output file, '-' for STDOUT
   -d OUTDIR, --outdir OUTDIR
                         specify output directory (default '.')
+  --mgmt-port           use XOS management port instead of in-band management
   --sfp-list SFP_LIST   list of combo ports with SFP installed, e.g.
                         'ge.1.47,ge.1.48'
   --ignore-defaults     ignore switch default settings for translation
@@ -83,6 +126,7 @@ optional arguments:
                         error occurs
   --disable-unused-ports
                         disable additional, unused ports of target switch
+  --interactive         enter interactive mode
 
 supported SOURCE switch models:
     C5G124-24

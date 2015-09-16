@@ -42,7 +42,9 @@ import re
 import EOS_read
 import LAG
 import STP
+import SntpServer
 import Switch
+import SyslogServer
 import Utils
 
 
@@ -106,6 +108,18 @@ class EosSwitch(Switch.Switch):
         self._stps.append(stp)
         for p in self._ports + self._lags:
             self._apply_default_common_port_settings(p)
+        self._banner_login_ack = (True, reason)
+        self._telnet_inbound = (True, reason)
+        self._telnet_outbound = (True, reason)
+        self._ssh_inbound = (False, reason)
+        self._http = (True, reason)
+        self._http_secure = (False, reason)
+        self._ssl = (False, reason)
+        self._mgmt_vlan = (1, reason)
+        self._mgmt_protocol = ('dhcp', reason)
+        self._idle_timer = (5, reason)
+        self._sntp_client = ('disable', reason)
+        self._ipv4_routing = (True, reason)
         super().apply_default_settings()
 
     def _apply_default_port_settings(self, port):
@@ -148,7 +162,6 @@ class EosSwitch(Switch.Switch):
 
     def _port_name_matches_description(self, name, description):
         """Match a port name against a port string."""
-        sep = self._sep
         description = description.strip()
         if name == description:
             return True
@@ -173,6 +186,25 @@ class EosSwitch(Switch.Switch):
             ret = speed_match and slot_match and port_match
         return ret
 
+    def _create_syslog_server(self):
+        ret = SyslogServer.SyslogServer()
+        defaults = {
+            'def_facility': 'local4',
+            'def_port': '514',
+            'def_state': 'disable',
+            'def_severity': '8',
+        }
+        ret.update_attributes(defaults)
+        return ret
+
+    def _create_sntp_server(self):
+        ret = SntpServer.SntpServer()
+        defaults = {
+            'def_precedence': 1
+        }
+        ret.update_attributes(defaults)
+        return ret
+
     def normalize_config(self, config):
         """Convert keywords to lower case."""
         keywords = {'enable', 'disable', 'cfgname', 'rev', 'sid', 'mstp',
@@ -193,7 +225,12 @@ class EosSwitch(Switch.Switch):
                     'helper-address', 'routing', 'cdp', 'ciscodp', 'lldp',
                     'broadcast', 'ingress-filter', 'trap', 'mac', 'lock',
                     'igmp', 'ipv6', 'ipv6mode', 'inbound', 'outbound',
-                    'loopback',
+                    'loopback', 'enabled', 'disabled', 'begin', 'end',
+                    'ssl', 'ssl-only', 'protocol', 'gateway', 'mask', 'bootp',
+                    'dhcp', 'none', 'boot', 'state', 'descr', 'facility',
+                    'local0', 'local1', 'local2', 'local3', 'local4', 'local5',
+                    'local6', 'local7', 'ip-addr', 'port', 'severity',
+                    'unicast', 'route',
                     }
         comments = self.get_cmd().get_comment()
         return (Utils.words_to_lower(config, keywords, comments), [])

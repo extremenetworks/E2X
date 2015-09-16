@@ -34,7 +34,7 @@ import EOS_read
 import Switch
 import Port
 
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock
 
 
 class EosClearPortLacpCommand_test(unittest.TestCase):

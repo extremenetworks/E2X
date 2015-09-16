@@ -44,7 +44,7 @@ for TEST in $BASEDIR/*[Tt]est.py; do
 	exit_val=$(( $exit_val + $? ))
 done
 # doctest tests as part of the source file
-for TEST in $BASEDIR/../src/Utils.py; do
+for TEST in $BASEDIR/../src/Utils.py $BASEDIR/../src/Tokenizer.py; do
 	test_count=$(( $test_count + 1 ))
 	printf -- '\n*** Running doc test for "%s" ***\n' "$(basename "$TEST")"
 	OUT=$("$PYTHON" "$TEST")

@@ -35,7 +35,7 @@ from EOS_read import EosCommand
 
 from Switch import Switch
 from Port import Port
-from ACL import ACL, ACE, Standard_ACE
+from ACL import ACL, Standard_ACE
 
 
 class EosCommand_test(unittest.TestCase):
@@ -404,6 +404,39 @@ class EosCommand_test(unittest.TestCase):
 
         self.assertEqual('', result)
         self.assertEqual(nr_vlans + 1, len(cmd._switch.get_all_vlans()))
+
+    def test_EosCommand__ignore_word(self):
+        config_line = ""
+        result = self.cmd._ignore_word('ignored', config_line)
+        self.assertEqual('', result)
+
+    def test_EosCommand_end_something(self):
+        config_line = "something"
+        result = self.cmd._ignore_word('ignore', config_line)
+        self.assertEqual('NOTICE: Ignoring unknown command "ignore something"',
+                         result)
+
+    def test_EosCommand_begin(self):
+        config_line = ""
+        result = self.cmd.do_begin(config_line)
+        self.assertEqual('', result)
+
+    def test_EosCommand_begin_something(self):
+        config_line = "something"
+        result = self.cmd.do_begin(config_line)
+        self.assertEqual('NOTICE: Ignoring unknown command "begin something"',
+                         result)
+
+    def test_EosCommand_end(self):
+        config_line = ""
+        result = self.cmd.do_end(config_line)
+        self.assertEqual('', result)
+
+    def test_EosCommand_ignore_end_something(self):
+        config_line = "something"
+        result = self.cmd.do_end(config_line)
+        self.assertEqual('NOTICE: Ignoring unknown command "end something"',
+                         result)
 
 if __name__ == '__main__':
     unittest.main()

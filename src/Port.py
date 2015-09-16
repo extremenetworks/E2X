@@ -115,7 +115,6 @@ class Port:
                 self._lacp_aadminkey[1] == reason or
                 self._stp_enabled[1] == reason or
                 # ignore auto-edge feature
-                #self._stp_auto_edge[1] == reason or
                 self._stp_edge[1] == reason or
                 self._stp_bpdu_guard[1] == reason or
                 self._stp_bpdu_guard_recovery_time[1] == reason or
@@ -343,8 +342,7 @@ class Port:
               max(self._allowed_speeds) == max(port.get_possible_speeds())):
             return True
         # accept use of combo port for SFP port if same maximum speed
-        elif (self._connector == 'combo' and port.get_connector() == 'sfp'
-              and
+        elif (self._connector == 'combo' and port.get_connector() == 'sfp' and
               max(self._allowed_speeds) == max(port.get_possible_speeds())):
             return True
         else:

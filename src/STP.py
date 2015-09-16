@@ -52,11 +52,13 @@ class STP():
     def __str__(self):
         description = 'Name: ' + str(self._name[0]) + ', '
         description += 'Status: '
-        description += 'enabled' if self._enabled else 'disabled' + ', '
+        description += ('enabled' if self._enabled else 'disabled') + ', '
         description += 'Version: ' + str(self._version[0]) + ', '
         description += 'Priority: ' + str(self._priority[0]) + ', '
         description += 'VLANs: ' + str(self._vlans[0]) + ', '
-        if self._version[0].lower() == 'mstp':
+        if (self._version is not None and
+                isinstance(self._version[0], str) and
+                self._version[0].lower() == 'mstp'):
             description += 'MST configuration name: '
             description += str(self._mst_cfgname[0]) + ', '
             description += 'MST configuration revision: '
@@ -209,8 +211,10 @@ class STP():
             self.del_vlan(vlan_tag, reason)
 
     def transfer_config(self, from_stp):
-        trans_reason = lambda a: ('transfer_conf' if a == 'config'
-                                  else 'transfer_def')
+
+        def trans_reason(r):
+            return 'transfer_conf' if r == 'config' else 'transfer_def'
+
         from_name = from_stp.get_name()
         if from_name is not None and from_name != self._name[0]:
             self._name = (from_name, trans_reason(from_stp.get_name_reason()))
@@ -231,8 +235,8 @@ class STP():
             self._priority = (from_priority, trans_reason(from_reason))
 
         from_mst_cfgname = from_stp.get_mst_cfgname()
-        if (from_mst_cfgname is not None
-                and from_mst_cfgname != self._mst_cfgname[0]):
+        if (from_mst_cfgname is not None and
+                from_mst_cfgname != self._mst_cfgname[0]):
             from_reason = from_stp.get_mst_cfgname_reason()
             self._mst_cfgname = (from_mst_cfgname, trans_reason(from_reason))
 
@@ -242,8 +246,8 @@ class STP():
             self._mst_rev = (from_mst_rev, trans_reason(from_reason))
 
         from_mst_instance = from_stp.get_mst_instance()
-        if (from_mst_instance is not None
-                and self._mst_instance[0] != from_mst_instance):
+        if (from_mst_instance is not None and
+                self._mst_instance[0] != from_mst_instance):
             from_reason = from_stp.get_mst_instance_reason()
             self._mst_instance = (from_mst_instance, trans_reason(from_reason))
 

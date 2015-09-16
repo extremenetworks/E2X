@@ -49,6 +49,8 @@ import json
 
 import STP
 import Switch
+import SyslogServer
+import VLAN
 import XOS_read
 import XOS_write
 
@@ -73,6 +75,7 @@ class XosSwitch(Switch.Switch):
         self._cmd = XOS_read.XosCommand(self)
         self._writer = XOS_write.XosConfigWriter(self)
         self._sep = ':'
+        self.add_vlan(VLAN.VLAN(name='Mgmt', switch=self))
 
     def _build_port_name(self, index, name_dict, slot):
         if self.is_stack():
@@ -96,6 +99,17 @@ class XosSwitch(Switch.Switch):
         stp.set_mst_rev(3, reason)
         stp.add_vlan(1, reason)
         self._stps.append(stp)
+        self._telnet_inbound = (True, reason)
+        self._telnet_outbound = (True, reason)
+        self._ssh_inbound = (False, reason)
+        self._ssl = (False, reason)
+        self._http = (True, reason)
+        self._http_secure = (False, reason)
+        self._mgmt_vlan = ('Mgmt', reason)
+        self._mgmt_protocol = ('none', reason)
+        self._idle_timer = (20, reason)
+        self._sntp_client = ('disable', reason)
+        self._ipv4_routing = (False, reason)
         super().apply_default_settings()
 
     def _apply_default_port_settings(self, port):
@@ -119,6 +133,16 @@ class XosSwitch(Switch.Switch):
             return lag_ports[0]
         else:
             return ''
+
+    def _create_syslog_server(self):
+        ret = SyslogServer.SyslogServer()
+        defaults = {
+            'def_port': '514',
+            'def_state': 'disable',
+            'def_severity': 'debug-data',
+        }
+        ret.update_attributes(defaults)
+        return ret
 
 
 # Dictionary of hardware descriptions
@@ -252,9 +276,9 @@ class XosSwitchHardware(XosSwitch):
                          for port_desc in sw_hw])
                     last_port = highest_ports['ports']['name']['end']
                     last_port = highest_port
-                if part in ['2xf', '2sf', '4sf', ]:
-                    offset = 2 if (part == '4sf' and
-                                  (not '2xf' in s and not '2sf' in s)) else 0
+                if part in {'2xf', '2sf', '4sf', }:
+                    offset = 2 if (part == '4sf' and ('2xf' not in s and
+                                   '2sf' not in s)) else 0
                     # module must have exactly one port list entry
                     mod_ports = json.loads(hw_desc[0])
                     mod_ports['ports']['name']['start'] += last_port + offset
