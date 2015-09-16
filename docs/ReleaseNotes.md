@@ -1,4 +1,4 @@
-# Release Notes for E2X Version 0.7.x
+# Release Notes for E2X Version 0.9.x
 
 E2X can translate a subset of the EOS commands supported by SecureStack
 switches (represented by the C5 command set). Supported commands are
