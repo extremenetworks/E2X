@@ -95,6 +95,19 @@ port string arguments.
     set logging server
     set sntp client
     set sntp server <IP> [precedence <PRECENDENCE>]
+    set timezone
+    set summertime {disable|enable}
+    set summertime recurring
+    set radius server <INDEX> <IP> <PORT> [<SECRET>] realm management-access
+    set radius {disable|enable}
+    set radius interface
+    set tacacs server <INDEX> <IP> <PORT> <SECRET>
+    set tacacs {disable|enable}
+    set tacacs interface
+    set snmp targetparams <NAME> user <PRINCIPAL> security-model {v1|v2c} message-processing {v1|v2c} [*]
+    set snmp targetaddr <NAME> <IP> param <PARAM_NAME> [*]
+    set system login <NAME> {super-user|read-write|read-only} {enable|disable} [password <PASSWORD>] [*]
+    clear system login <NAME>
 
 ## Function Module Basic Layer 3
 
@@ -121,16 +134,20 @@ In addition to translating individual command lines, how-tos can be displayed.
     Configure Router IP Address
     Create a VLAN
     Configure a Quiet Switch
+    Configure SNMPv3
+    Configure SNMPv1 Trap Receiver
+    Set Passwords for Default Accounts
+    Clear Default Non-Admin Accounts
 
 ### Commands
 
     clear config [all]
     clear ip address
+    clear system login <NAME>
     copy tftp://<IPV4_ADDRESS>/[<PATH>/]<IMAGE_FILE> system:image
     dir
     ip route <PREFIX> <NETMASK> <GATEWAY>
-    reset
-    reset <NR>
+    reset [<NR>]
     save config
     set boot system <IMAGE_FILE>
     set ip address <IPV4-ADDRESS> [mask <NETMASK> [gateway <IPV4-ADDRESS>]]
@@ -138,24 +155,32 @@ In addition to translating individual command lines, how-tos can be displayed.
     set logging server 1 ip-addr <IPV4-ADDRESS> severity 6 state enable
     set logout 0
     set logout <MINS>
+    set password <ACCOUNT>
     set port broadcast <PORTSTRING> <NR>
     set port disable <PORTSTRING>
     set port enable <PORTSTRING>
     set port trap <PORTSTRING> {enable|disable}
-    set port vlan <PORTSTRING> <NR> modify-egress
+    set port vlan <PORTSTRING> <NR> [modify-egress]
     set sntp client
     set sntp server <IP> [precedence <PRECEDENCE>]
     set ssh {enabled|disabled}
-    set system login <NAME> super-user {enable|disable} [password <PASSWORD>]
+    set system login <NAME> {super-user|read-write|read-only} {enable|disable} [password <PASSWORD>]
     set telnet {enable|disable} {all|inbound|outbound}
+    set time
     show banner {login|motd}
-    show config [<SECTION>]
+    show config [all] [<SECTION>]
     show ip address
     show [ip] arp
     show ip arp vlan <NR>
+    show ip interface [{loopback|vlan} <NUMBER>]
     show ip route [connected|ospf|rip|static|summary]
     show logging server
     show logout
+    show mac
+    show mac address <MACADDRESS>
+    show mac fid <VLAN>
+    show mac port <PORTSTRING>
+    show neighbors [<PORTSTRING>]
     show port broadcast [<PORTSTRING>]
     show port egress [<PORTSTRING>]
     show port negotiation <PORTSTRING>
@@ -164,6 +189,7 @@ In addition to translating individual command lines, how-tos can be displayed.
     show port vlan <PORTSTRING>
     show radius
     show sntp
+    show spantree stats [active]
     show ssh
     show ssl
     show summertime
@@ -175,4 +201,5 @@ In addition to translating individual command lines, how-tos can be displayed.
     show time
     show version
     show vlan [static] [<NR>]
+    show vlan portinfo [port <PORTSTRING>]
     show webview

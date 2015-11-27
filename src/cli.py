@@ -42,7 +42,7 @@ import CM
 from InteractiveModeHandler import InteractiveModeHandler
 
 progname = 'e2x'
-progver = '0.9.0'
+progver = '0.9.2'
 progdesc = """\
 Translate ExtremeEOS switch configuration commands to ExtremeXOS. If no
 FILEs are specified, input is read from STDIN and written to STDOUT, and
@@ -391,8 +391,8 @@ There must not be any whitespace in the list of switch models!
                     if (l and (not l.startswith('DEBUG') or args.debug)):
                         print(c.target.get_cmd().get_comment(), l.rstrip(),
                               file=out)
+            out.flush()
             if outname != '-':
-                out.flush()
                 out.close()
         else:
             err.append('ERROR: Error translating input file "' + str(f) +

@@ -111,7 +111,7 @@ class EosSetVlanCommand_test(unittest.TestCase):
     def test_do_name_fail_tag_not_int_name_not_empty(self):
         arg = 'a foo'
         expected = self.ErrorStart + \
-            'VLAN tag must be an integer (set vlan name)'
+            'VLAN tag must be an integer (set vlan name a foo)'
 
         result = self.cmd.do_name(arg)
 
@@ -120,7 +120,7 @@ class EosSetVlanCommand_test(unittest.TestCase):
     def test_do_name_fail_tag_not_int_name_empty(self):
         arg = 'a'
         expected = self.ErrorStart + \
-            'VLAN tag must be an integer (set vlan name)'
+            'VLAN tag must be an integer (set vlan name a)'
 
         result = self.cmd.do_name(arg)
 
@@ -130,7 +130,7 @@ class EosSetVlanCommand_test(unittest.TestCase):
         arg = '100'
         self.mockSwitch.get_vlan.return_value = []
         expected = self.ErrorStart + \
-            'VLAN ' + arg + ' not found (set vlan name)'
+            'VLAN ' + arg + ' not found (set vlan name 100)'
 
         result = self.cmd.do_name(arg)
 

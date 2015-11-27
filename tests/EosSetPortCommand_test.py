@@ -245,19 +245,19 @@ class EosSetPortCommand_test(unittest.TestCase):
 
     def test_do_jumbo(self):
         self.cmd._set_port_jumbo.onecmd = Mock()
-        arg = 'foo'
+        arg = 'jumbo'
 
-        self.cmd.do_jumbo(arg)
+        self.cmd.onecmd(arg)
 
-        self.cmd._set_port_jumbo.onecmd.assert_called_once_with(arg)
+        self.assertEqual(1, self.cmd._set_port_jumbo.onecmd.call_count)
 
     def test_do_lacp(self):
         self.cmd._set_port_lacp.onecmd = Mock()
-        arg = 'foo'
+        arg = 'lacp'
 
-        self.cmd.do_lacp(arg)
+        self.cmd.onecmd(arg)
 
-        self.cmd._set_port_lacp.onecmd.assert_called_once_with(arg)
+        self.assertEqual(1, self.cmd._set_port_lacp.onecmd.call_count)
 
     def test_do_alias_arg_separation(self):
         reason = 'config'
@@ -327,7 +327,7 @@ class EosSetPortCommand_test(unittest.TestCase):
     def test_do_vlan_fail_unknown_port(self):
         arg = self.portCmd + ' 1 modify-egress'
         self.mockSwitch.get_ports_by_name.return_value = []
-        expected = self.PortNotFound.format('vlan')
+        expected = self.PortNotFound.format('vlan ge.1.1 1 modify-egress')
 
         result = self.cmd.do_vlan(arg)
 
@@ -339,7 +339,7 @@ class EosSetPortCommand_test(unittest.TestCase):
         self.mockSwitch.get_ports_by_name.return_value = [self.mockPort]
         self.mockSwitch.get_vlan.return_value = None
         expected = self.ErrorStart + 'VLAN ' + tag + ' not found ' + \
-            '(set port vlan)'
+            '(set port vlan ge.1.1 1 modify-egress)'
 
         result = self.cmd.do_vlan(arg)
 

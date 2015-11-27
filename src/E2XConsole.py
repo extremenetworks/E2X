@@ -133,8 +133,9 @@ class SysInOutConsole:
     def display_howto_descriptions(self):
         self._print_empty_lines(1)
         print('List of HowTos:')
-        for index, desc in sorted(self.howto_descriptions_dict.items()):
-            print('  {}: {}'.format(index, desc))
+        for index in sorted(self.howto_descriptions_dict.keys(), key=int):
+            desc = self.howto_descriptions_dict[index]
+            print('  {:>2}: {}'.format(index, desc))
         self._print_empty_lines(1)
         self._display_info()
 

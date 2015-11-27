@@ -87,7 +87,7 @@ class EosSetSpantreeMstcfgidCommand_test(unittest.TestCase):
 
         result = self.cmd.do_cfgname(arg)
 
-        self.mockStp.set_mst_cfgname.assert_callaed_once_with(arg, 'config')
+        self.mockStp.set_mst_cfgname.assert_called_once_with(arg, 'config')
         self.assertEqual(expected, result)
 
     def test_do_cfgname_three_args(self):
@@ -168,7 +168,7 @@ class EosSetSpantreeMstcfgidCommand_test(unittest.TestCase):
 
         result = self.cmd.do_rev(arg)
 
-        self.mockStp.set_mst_rev.assert_callaed_once_with(arg, 'config')
+        self.mockStp.set_mst_rev.assert_called_once_with(int(arg), 'config')
         self.assertEqual(expected, result)
 
     def test_do_rev_three_args(self):

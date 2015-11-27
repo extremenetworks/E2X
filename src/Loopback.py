@@ -69,6 +69,15 @@ class Loopback():
         """Add an IPv4 address. First address in list is primary."""
         self._ipv4_addresses.append((ip, netmask))
 
+    def change_ipv4_address(self, ip, netmask):
+        if len(self._ipv4_addresses) > 1:
+            return False
+        elif len(self._ipv4_addresses) == 1:
+            self._ipv4_addresses[0] = (ip, netmask)
+        else:
+            self._ipv4_addresses.append((ip, netmask))
+        return True
+
     def get_svi_shutdown(self):
         return self._svi_shutdown
 

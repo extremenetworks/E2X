@@ -80,6 +80,7 @@ class ACL:
         for ace in self._entries:
             desc += ' ' + str(ace)
         desc += ']'
+        desc += ', surplus_params="' + str(self._surplus_params) + '"'
         desc += ')'
         return desc
 

@@ -245,6 +245,12 @@ class Switch_test(unittest.TestCase):
         expected += ' Syslog Servers:\n'
         expected += ' SNTP Client Mode: (None, None)\n'
         expected += ' SNTP Servers:\n'
+        expected += ' RADIUS Servers:\n'
+        expected += ' RADIUS for Management Access: (None, None)\n'
+        expected += ' RADIUS Interface: (None, None)\n'
+        expected += ' TACACS+: (None, None)\n'
+        expected += ' TACACS+ Interface: (None, None)\n'
+        expected += ' TACACS+ Servers:\n'
         expected += ' Ports:'
         for p in self.sw._ports:
             expected += ' ()'
@@ -264,6 +270,16 @@ class Switch_test(unittest.TestCase):
         expected += ' ACLs:\n'
         expected += ' IPv4 Routing: (None, None)\n'
         expected += ' IPv4 Static Routes: set()\n'
+        expected += ' Timezone Name: (None, None)\n'
+        expected += ' Timezone Offset (Minutes): (None, None)\n'
+        expected += ' Timezone DST State: (None, None)\n'
+        expected += ' Timezone DST Name: (None, None)\n'
+        expected += ' Timezone DST Start: (None, None)\n'
+        expected += ' Timezone DST End: (None, None)\n'
+        expected += ' Timezone DST Offset (Minutes): (None, None)\n'
+        expected += ' SNMP Target Parameters:\n'
+        expected += ' SNMP Target Addresses:\n'
+        expected += ' User Accounts:\n'
 
         result = str(self.sw)
 

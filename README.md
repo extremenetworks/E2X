@@ -34,6 +34,11 @@ There you find a [user manual](docs/Manual.md) and a [development
 document](docs/Development.md), as well as
 [release notes](docs/ReleaseNotes.md).
 
+A short introduction to E2X is given in the [GTAC
+Knowledge](https://gtacknowledge.extremenetworks.com)
+article [How to Convert EOS Configurations to EXOS using
+e2x.py](https://gtacknowledge.extremenetworks.com/articles/How_To/How-to-convert-EOS-configurations-to-EXOS-using-e2x-py).
+
 ### Quick Start
 
 E2X is a command line application written in Python 3. An installation of
@@ -52,15 +57,15 @@ is started using the option `--interactive`:
 
 ```
 $ e2x.py --interactive
-e2x v0.7.1
+e2x v0.9.2
 Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 Use is subject to license terms.
 This is free software, licensed under CDDL 1.0
 
 % Command translation assumes VLAN 1 for management
 
-Enter "HowTos" to show list
-Enter number from "1" to "6" to select HowTo
+Enter "HowTos" or "commands" to show list
+Enter number from "1" to "8" to select HowTo
 Enter "q" to quit
 
 e2x>
@@ -74,8 +79,8 @@ E2X prints a short help message if the option `--help` is used:
 $ e2x.py --help
 usage: e2x [-h] [-V] [-q] [-v] [-D]
            [--log-level {DEBUG,INFO,NOTICE,WARN,ERROR}] [--source SOURCE]
-           [--target TARGET] [-o OUTFILE] [-d OUTDIR] [--sfp-list SFP_LIST]
-           [--ignore-defaults] [--keep-unknown-lines]
+           [--target TARGET] [-o OUTFILE] [-d OUTDIR] [--mgmt-port]
+           [--sfp-list SFP_LIST] [--ignore-defaults] [--keep-unknown-lines]
            [--comment-unknown-lines] [--err-unknown-lines] [--err-warnings]
            [--messages-as-comments] [--abort-on-error]
            [--disable-unused-ports] [--interactive]

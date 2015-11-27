@@ -188,8 +188,8 @@ class ConfigWriter_test(unittest.TestCase):
                   expErrStr.format('VLAN'),
                   expErrStr.format('STP'),
                   expErrStr.format('ACL'),
-                  expErrStr.format('management'),
                   expErrStr.format('basic layer 3'),
+                  expErrStr.format('management'),
                   ])
 
         self.cw.check_unwritten = MagicMock(return_value=[])

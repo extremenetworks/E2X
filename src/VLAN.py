@@ -28,6 +28,14 @@
 """Model of a VLAN."""
 
 
+def is_valid_tag(tag):
+    try:
+        itag = int(tag)
+    except:
+        return False
+    return 0 < itag < 4096
+
+
 class VLAN():
 
     """Model of a VLAN.
@@ -76,14 +84,10 @@ class VLAN():
         return self._tag
 
     def set_tag(self, tag):
-        try:
-            itag = int(tag)
-        except:
+        if not is_valid_tag(tag):
             return False
-        if 0 < itag and itag < 4095:
-            self._tag = itag
-            return True
-        return False
+        self._tag = int(tag)
+        return True
 
     def _get_list(self, direction):
         if direction.startswith('in'):
@@ -233,6 +237,15 @@ class VLAN():
     def add_ipv4_address(self, ip, netmask):
         """Add an IPv4 address. First address in list is primary."""
         self._ipv4_addresses.append((ip, netmask))
+
+    def change_ipv4_address(self, ip, netmask):
+        if len(self._ipv4_addresses) > 1:
+            return False
+        elif len(self._ipv4_addresses) == 1:
+            self._ipv4_addresses[0] = (ip, netmask)
+        else:
+            self._ipv4_addresses.append((ip, netmask))
+        return True
 
     def get_ipv4_helper_addresses(self):
         return self._ipv4_helper_addresses

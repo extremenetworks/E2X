@@ -18,7 +18,9 @@ module, automated integration tests using
 [scripttest](http://pythonpaste.org/scripttest/) are implemented as
 well. A copy of *scripttest* is included in the git repository.
 Automatic testing of the interactive mode uses
-[pexpect](https://pypi.python.org/pypi/pexpect).
+[pexpect](https://pypi.python.org/pypi/pexpect). It can be installed
+via `pip3 install pexpect` or `python3 -m pip install pexpect`,
+or something similar, depending on the local Python 3 installation.
 
 The make program is used to ease creation of a single
 executable E2X program, `e2x.py`. The Makefile enables easy
@@ -47,10 +49,11 @@ using the [`pep8`](https://pypi.python.org/pypi/pep8) tool.
 * pandoc
 * POSIX compatible tools (e.g. cat, chmod, sed)
 * pep8
+* pexpect
 
 ## Makefile Targets
 
-* `make` builds the `e2x.py` executable
+* `make` builds the `e2x.py` executable and HTML documentation
 * `make clean` removes generated files
 * `make distclean` calls `make clean` and removes Python cache files
 * `make html` builds HTML documentation
@@ -296,3 +299,127 @@ includes consistency checks. Configuration commands pertaining to some
 feature that is not supported by the target platform result in an error.
 The latter checks are implemented in the `ConfigWriter()` method of the
 target switch.
+
+## Adding Configuration Command Translation
+
+This section gives a step by step overview on adding a new switch
+configuration command translation from ExtremeEOS to ExtremeXOS fitting
+into an existing function module to E2X.
+
+### Switch Model
+
+The first step for adding a new configuration command translation is
+to add the respective configuration attribute(s) to the switch model. A
+simple per switch attribute can be added as a new variable. A more complex
+attribute, like a list of syslog servers, might require a new class. This
+is done in the file [`Switch.py`](../src/Switch.py). A new class would be
+added as a new file, see e.g. [`SyslogServer.py`](../src/SyslogServer.py).
+
+The values of the new attributes need to be transfered from the
+source switch model to the target switch model. This is done in method
+`Switch.transfer_config()`.
+
+To verify that the new attributes have been included in the translation,
+they need to be added to the `ConfigWriter.check_unwritten()` method.
+
+For debugging purposes, new switch model attributes should be added to
+the `Switch.__str__()` method.
+
+### Switch OS Defaults
+
+If the added attributes have default values in ExtremeEOS and/or ExtremeXOS,
+those need be added to `EosSwitch.apply_default_settings()` (file
+[`EOS.py`](../src/EOS.py)) and/or `XosSwitch.apply_default_settings()`
+(file [`XOS.py`](../src/XOS.py)).
+
+### Configuration Command Parsing
+
+Parsing of the new configuration command needs to be added to the file
+[`EOS_read.py`](../src/EOS_read.py).
+
+### Configuration Line Writing
+
+Writing of the translated commands needs to be added to the
+appropriate method (corresponding to a functional module) in
+[`XOS_write.py`](../src/XOS_write.py). The order of the functional
+modules needs to ensure that prerequsites are fulfilled for
+every translated command. E.g., a VLAN needs to be created before an IP
+address can be configured for that VLAN on ExtremeXOS.
+
+### Tests
+
+To verify that the new translation did not break any existing functionality,
+the automated test suit needs to be run (`make check`). Some tests may fail
+because of the new functionality, e.g. the output of `Switch.__str__()` is
+tested and the new switch attribute(s) changed it. These tests need to be
+adjusted to the added command translation.
+
+To verify that the translation works, and to ensure it continues to work,
+tests should be added. [`IntegrationTest.py`](../tests/IntegrationTest.py)
+is used to check translation of configuration snippets. The new command
+translation needs to be added there. Additional unit tests should be
+added as well.
+
+### Documentation
+
+The newly translated ExtremeEOS command needs to be added to the file
+[`ReleaseNotes.md`](ReleaseNotes.md). Update additional documentation
+as needed.
+
+### Checklist
+
+* [`Switch.py`](../src/Switch.py)
+    * Add new switch attributes (may need new classes for complex attributes)
+    * Add attributes to `Switch.__str__()`
+    * Add attributes to `Switch.transfer_config()`
+    * Add attributes to `ConfigWriter.check_unwritten()`
+* [`EOS.py`](../src/EOS.py)
+    * Add defaults for new switch attributes
+    * Add command keywords to EosSwitch.normalize_config()
+* [`XOS.py`](../src/XOS.py)
+    * Add defaults for new switch attributes
+* [`EOS_read.py`](../src/EOS_read.py)
+    * Add command line parsing
+* [`XOS_write.py`](../src/XOS_write.py)
+    * Add translated commands to `XosConfigWriter.<FunctionModule>()`
+* Run automated tests (`make check`)
+    * Adjust tests to changes (e.g. for `Switch.__str__()`)
+    * Verify existing functionality still works as expected
+* Add tests
+    * Test new command translation
+        * [`IntegrationTest.py`](../tests/IntegrationTest.py)
+    * Add unit tests
+* Update [`ReleaseNotes.md`](ReleaseNotes.md) with the new command translation
+* Update the [`Manual.md`](Manual.md) and/or other documentation if applicable
+
+## Adding Interactive Mode Command Translation
+
+Command translation for the interactive mode is independent of
+configuration command translation. Translation is done using
+pattern matching and text replacement. The pattern replacement
+is defined in the initializer of class `Translator` in the file
+[`Translator.py`](../src/Translator.py). Any new commands need to be added
+there. Note that the order of the specified patterns is important.
+More specific patterns need to preceed less specific patterns with the
+same prefix.
+
+The command list displayed in E2X interactive mode is generated from the
+file [`ReleaseNotes.md`](ReleaseNotes.md). Any new commands need to be
+added there as well.
+
+All command translations in interactive mode need to be added to the
+[`InteractiveModeIntegrationTest.py`](../tests/InteractiveModeIntegrationTest.py)
+by adding translation examples to the file
+[`interactive_statements`](../tests/interactive_statements).
+
+## Adding Interactive Mode How-To
+
+The E2X interactive mode how-tos are defined in XML format in the
+file [`HowToHandler.py`](../src/HowToHandler.py) in the attribute
+`HowToHandler.howtos`.
+
+Any new how-to(s) should be added to [`ReleaseNotes.md`](ReleaseNotes.md)
+as well.
+
+If the new how-to(s) contain commands missing from interactive mode
+command translation, consider adding them there, too.

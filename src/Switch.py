@@ -38,10 +38,15 @@ import ipaddress
 import json
 
 import ACL
+import Account
 import Loopback
 import Port
+import RadiusServer
+import SnmpTargetAddr
+import SnmpTargetParams
 import SntpServer
 import SyslogServer
+import TacacsServer
 import VLAN
 
 
@@ -71,8 +76,13 @@ class Switch:
         self._acls = []
         self._syslog_servers = {}
         self._sntp_servers = []
+        self._radius_servers = {}
+        self._tacacs_servers = {}
         self._ipv4_static_routes = set()
         self._use_oob_mgmt = False
+        self._snmp_target_params = {}
+        self._snmp_target_addrs = {}
+        self._user_accounts = {}
         self._init_configurable_attributes()
 
     def _init_configurable_attributes(self):
@@ -102,6 +112,17 @@ class Switch:
         self._idle_timer = (None, None)
         self._sntp_client = (None, None)
         self._ipv4_routing = (None, None)
+        self._tz_name = (None, None)
+        self._tz_off_min = (None, None)
+        self._tz_dst_state = (None, None)
+        self._tz_dst_name = (None, None)
+        self._tz_dst_start = (None, None)
+        self._tz_dst_end = (None, None)
+        self._tz_dst_off_min = (None, None)
+        self._radius_mgmt_acc_enabled = (None, None)
+        self._radius_interface = (None, None)
+        self._tacacs_enabled = (None, None)
+        self._tacacs_interface = (None, None)
 
     def __str__(self):
         description = ' Model: ' + str(self._model) + '\n'
@@ -137,6 +158,19 @@ class Switch:
         description += '\n SNTP Servers:'
         for s in self._sntp_servers:
             description += ' (' + str(s) + ')'
+        description += '\n RADIUS Servers:'
+        for r in self._radius_servers:
+            description += ' (' + str(r) + ': ' + str(self._radius_servers[r])
+            description += ')'
+        description += '\n RADIUS for Management Access: '
+        description += str(self._radius_mgmt_acc_enabled)
+        description += '\n RADIUS Interface: ' + str(self._radius_interface)
+        description += '\n TACACS+: ' + str(self._tacacs_enabled)
+        description += '\n TACACS+ Interface: ' + str(self._tacacs_interface)
+        description += '\n TACACS+ Servers:'
+        for t in self._tacacs_servers:
+            description += ' (' + str(t) + ': ' + str(self._tacacs_servers[t])
+            description += ')'
         description += '\n Ports:'
         for p in self._ports:
             description += ' (' + str(p) + ')'
@@ -161,6 +195,25 @@ class Switch:
         description += '\n IPv4 Routing: ' + str(self._ipv4_routing)
         description += '\n IPv4 Static Routes: '
         description += str(self._ipv4_static_routes)
+        description += '\n Timezone Name: ' + str(self._tz_name)
+        description += '\n Timezone Offset (Minutes): ' + str(self._tz_off_min)
+        description += '\n Timezone DST State: ' + str(self._tz_dst_state)
+        description += '\n Timezone DST Name: ' + str(self._tz_dst_name)
+        description += '\n Timezone DST Start: ' + str(self._tz_dst_start)
+        description += '\n Timezone DST End: ' + str(self._tz_dst_end)
+        description += ('\n Timezone DST Offset (Minutes): ' +
+                        str(self._tz_dst_off_min))
+        description += '\n SNMP Target Parameters:'
+        for t in self._snmp_target_params:
+            description += ' (' + str(t) + ': '
+            description += str(self._snmp_target_params[t]) + ')'
+        description += '\n SNMP Target Addresses:'
+        for t in self._snmp_target_addrs:
+            description += ' (' + str(t) + ': '
+            description += str(self._snmp_target_addrs[t]) + ')'
+        description += '\n User Accounts:'
+        for u in self._user_accounts:
+            description += ' (' + str(self._user_accounts[u]) + ')'
         description += '\n'
         return description
 
@@ -666,6 +719,28 @@ class Switch:
     def get_all_sntp_servers(self):
         return self._sntp_servers
 
+    def _create_radius_server(self):
+        return RadiusServer.RadiusServer()
+
+    def get_radius_server(self, index):
+        if index not in self._radius_servers:
+            self._radius_servers[index] = self._create_radius_server()
+        return self._radius_servers.get(index)
+
+    def get_all_radius_servers(self):
+        return self._radius_servers
+
+    def _create_tacacs_server(self):
+        return TacacsServer.TacacsServer()
+
+    def get_tacacs_server(self, index):
+        if index not in self._tacacs_servers:
+            self._tacacs_servers[index] = self._create_tacacs_server()
+        return self._tacacs_servers.get(index)
+
+    def get_all_tacacs_servers(self):
+        return self._tacacs_servers
+
     def set_sntp_client(self, mode, reason):
         self._sntp_client = (mode, reason)
 
@@ -716,6 +791,163 @@ class Switch:
 
     def add_ipv4_static_route(self, route):
         self._ipv4_static_routes.add(route)
+
+    def get_tz_name(self):
+        return self._tz_name[0]
+
+    def get_tz_name_reason(self):
+        return self._tz_name[1]
+
+    def set_tz_name(self, name, reason):
+        self._tz_name = (name, reason)
+
+    def get_tz_off_min(self):
+        return self._tz_off_min[0]
+
+    def get_tz_off_min_reason(self):
+        return self._tz_off_min[1]
+
+    def set_tz_off_min(self, minutes, reason):
+        self._tz_off_min = (minutes, reason)
+
+    def get_tz_dst_state(self):
+        return self._tz_dst_state[0]
+
+    def get_tz_dst_state_reason(self):
+        return self._tz_dst_state[1]
+
+    def set_tz_dst_state(self, state, reason):
+        self._tz_dst_state = (state, reason)
+
+    def enable_tz_dst(self, reason):
+        return self.set_tz_dst_state('enabled', reason)
+
+    def disable_tz_dst(self, reason):
+        return self.set_tz_dst_state('disabled', reason)
+
+    def get_tz_dst_name(self):
+        return self._tz_dst_name[0]
+
+    def get_tz_dst_name_reason(self):
+        return self._tz_dst_name[1]
+
+    def set_tz_dst_name(self, name, reason):
+        self._tz_dst_name = (name, reason)
+
+    def get_tz_dst_start(self):
+        return self._tz_dst_start[0]
+
+    def get_tz_dst_start_reason(self):
+        return self._tz_dst_start[1]
+
+    def set_tz_dst_start(self, week, day, month, hour, minute, reason):
+        self._tz_dst_start = ((week, day, month, hour, minute), reason)
+
+    def get_tz_dst_end(self):
+        return self._tz_dst_end[0]
+
+    def get_tz_dst_end_reason(self):
+        return self._tz_dst_end[1]
+
+    def set_tz_dst_end(self, week, day, month, hour, minute, reason):
+        self._tz_dst_end = ((week, day, month, hour, minute), reason)
+
+    def get_tz_dst_off_min(self):
+        return self._tz_dst_off_min[0]
+
+    def get_tz_dst_off_min_reason(self):
+        return self._tz_dst_off_min[1]
+
+    def set_tz_dst_off_min(self, minutes, reason):
+        self._tz_dst_off_min = (minutes, reason)
+
+    def get_radius_mgmt_acc_enabled(self):
+        return self._radius_mgmt_acc_enabled[0]
+
+    def get_radius_mgmt_acc_enabled_reason(self):
+        return self._radius_mgmt_acc_enabled[1]
+
+    def set_radius_mgmt_acc_enabled(self, state, reason):
+        self._radius_mgmt_acc_enabled = (state, reason)
+
+    def get_radius_interface(self):
+        return self._radius_interface[0]
+
+    def get_radius_interface_reason(self):
+        return self._radius_interface[1]
+
+    def get_radius_interface_type(self):
+        if self._radius_interface[0] is not None:
+            return self._radius_interface[0][0]
+
+    def get_radius_interface_number(self):
+        if self._radius_interface[0] is not None:
+            return self._radius_interface[0][1]
+
+    def set_radius_interface(self, interface, reason):
+        self._radius_interface = (interface, reason)
+
+    def get_tacacs_enabled(self):
+        return self._tacacs_enabled[0]
+
+    def get_tacacs_enabled_reason(self):
+        return self._tacacs_enabled[1]
+
+    def set_tacacs_enabled(self, state, reason):
+        self._tacacs_enabled = (state, reason)
+
+    def get_tacacs_interface(self):
+        return self._tacacs_interface[0]
+
+    def get_tacacs_interface_reason(self):
+        return self._tacacs_interface[1]
+
+    def get_tacacs_interface_type(self):
+        if self._tacacs_interface[0] is not None:
+            return self._tacacs_interface[0][0]
+
+    def get_tacacs_interface_number(self):
+        if self._tacacs_interface[0] is not None:
+            return self._tacacs_interface[0][1]
+
+    def set_tacacs_interface(self, interface, reason):
+        self._tacacs_interface = (interface, reason)
+
+    def _create_snmp_target_params(self):
+        return SnmpTargetParams.SnmpTargetParams()
+
+    def get_snmp_target_params(self, name):
+        if name not in self._snmp_target_params:
+            self._snmp_target_params[name] = self._create_snmp_target_params()
+        return self._snmp_target_params.get(name)
+
+    def get_all_snmp_target_params(self):
+        return self._snmp_target_params
+
+    def _create_snmp_target_addr(self):
+        return SnmpTargetAddr.SnmpTargetAddr()
+
+    def get_snmp_target_addr(self, name):
+        if name not in self._snmp_target_addrs:
+            self._snmp_target_addrs[name] = self._create_snmp_target_addr()
+        return self._snmp_target_addrs.get(name)
+
+    def get_all_snmp_target_addrs(self):
+        return self._snmp_target_addrs
+
+    def _create_user_account(self):
+        return Account.UserAccount()
+
+    def get_user_account(self, name):
+        if name not in self._user_accounts:
+            self._user_accounts[name] = self._create_user_account()
+        return self._user_accounts.get(name)
+
+    def get_all_user_accounts(self):
+        return self._user_accounts
+
+    def del_user_account(self, name):
+        return self._user_accounts.pop(name, None)
 
     def transfer_config(self, from_switch):
         reason_def = 'transfer_def'
@@ -909,6 +1141,14 @@ class Switch:
             t_sntp_srv = self.get_sntp_server(idx)
             t_sntp_srv.transfer_config(sntp_srv)
 
+        for rad_srv_idx in from_switch.get_all_radius_servers():
+            t_rad_srv = self.get_radius_server(rad_srv_idx)
+            t_rad_srv.transfer_config(from_switch._radius_servers[rad_srv_idx])
+
+        for tac_srv_idx in from_switch.get_all_tacacs_servers():
+            t_tac_srv = self.get_tacacs_server(tac_srv_idx)
+            t_tac_srv.transfer_config(from_switch._tacacs_servers[tac_srv_idx])
+
         t_sntp_client = from_switch.get_sntp_client()
         if (t_sntp_client is not None and
            self._sntp_client[0] != t_sntp_client):
@@ -927,6 +1167,111 @@ class Switch:
 
         self.set_all_ipv4_static_routes(
             from_switch.get_all_ipv4_static_routes())
+
+        t_tz_name = from_switch.get_tz_name()
+        if (t_tz_name is not None and
+           self._tz_name[0] != t_tz_name):
+            if from_switch.get_tz_name_reason() == 'default':
+                self._tz_name = (t_tz_name, reason_def)
+            else:
+                self._tz_name = (t_tz_name, reason_conf)
+
+        t_tz_off_min = from_switch.get_tz_off_min()
+        if (t_tz_off_min is not None and
+           self._tz_off_min[0] != t_tz_off_min):
+            if from_switch.get_tz_off_min_reason() == 'default':
+                self._tz_off_min = (t_tz_off_min, reason_def)
+            else:
+                self._tz_off_min = (t_tz_off_min, reason_conf)
+
+        t_tz_dst_state = from_switch.get_tz_dst_state()
+        if (t_tz_dst_state is not None and
+           self._tz_dst_state[0] != t_tz_dst_state):
+            if from_switch.get_tz_dst_state_reason() == 'default':
+                self._tz_dst_state = (t_tz_dst_state, reason_def)
+            else:
+                self._tz_dst_state = (t_tz_dst_state, reason_conf)
+
+        t_tz_dst_name = from_switch.get_tz_dst_name()
+        if (t_tz_dst_name is not None and
+           self._tz_dst_name[0] != t_tz_dst_name):
+            if from_switch.get_tz_dst_name_reason() == 'default':
+                self._tz_dst_name = (t_tz_dst_name, reason_def)
+            else:
+                self._tz_dst_name = (t_tz_dst_name, reason_conf)
+
+        t_tz_dst_start = from_switch.get_tz_dst_start()
+        if (t_tz_dst_start is not None and
+           self._tz_dst_start[0] != t_tz_dst_start):
+            if from_switch.get_tz_dst_start_reason() == 'default':
+                self._tz_dst_start = (t_tz_dst_start, reason_def)
+            else:
+                self._tz_dst_start = (t_tz_dst_start, reason_conf)
+
+        t_tz_dst_end = from_switch.get_tz_dst_end()
+        if (t_tz_dst_end is not None and
+           self._tz_dst_end[0] != t_tz_dst_end):
+            if from_switch.get_tz_dst_end_reason() == 'default':
+                self._tz_dst_end = (t_tz_dst_end, reason_def)
+            else:
+                self._tz_dst_end = (t_tz_dst_end, reason_conf)
+
+        t_tz_dst_off_min = from_switch.get_tz_dst_off_min()
+        if (t_tz_dst_off_min is not None and
+           self._tz_dst_off_min[0] != t_tz_dst_off_min):
+            if from_switch.get_tz_dst_off_min_reason() == 'default':
+                self._tz_dst_off_min = (t_tz_dst_off_min, reason_def)
+            else:
+                self._tz_dst_off_min = (t_tz_dst_off_min, reason_conf)
+
+        t_radius_mgmt_acc_enabled = from_switch.get_radius_mgmt_acc_enabled()
+        if (t_radius_mgmt_acc_enabled is not None and
+           self._radius_mgmt_acc_enabled[0] != t_radius_mgmt_acc_enabled):
+            if from_switch.get_radius_mgmt_acc_enabled_reason() == 'default':
+                self._radius_mgmt_acc_enabled = (t_radius_mgmt_acc_enabled,
+                                                 reason_def)
+            else:
+                self._radius_mgmt_acc_enabled = (t_radius_mgmt_acc_enabled,
+                                                 reason_conf)
+
+        t_tacacs_enabled = from_switch.get_tacacs_enabled()
+        if (t_tacacs_enabled is not None and
+           self._tacacs_enabled[0] != t_tacacs_enabled):
+            if from_switch.get_tacacs_enabled_reason() == 'default':
+                self._tacacs_enabled = (t_tacacs_enabled, reason_def)
+            else:
+                self._tacacs_enabled = (t_tacacs_enabled, reason_conf)
+
+        t_radius_interface = from_switch.get_radius_interface()
+        if (t_radius_interface is not None and
+           self._radius_interface[0] != t_radius_interface):
+            if from_switch.get_radius_interface_reason() == 'default':
+                self._radius_interface = (t_radius_interface, reason_def)
+            else:
+                self._radius_interface = (t_radius_interface, reason_conf)
+
+        t_tacacs_interface = from_switch.get_tacacs_interface()
+        if (t_tacacs_interface is not None and
+           self._tacacs_interface[0] != t_tacacs_interface):
+            if from_switch.get_tacacs_interface_reason() == 'default':
+                self._tacacs_interface = (t_tacacs_interface, reason_def)
+            else:
+                self._tacacs_interface = (t_tacacs_interface, reason_conf)
+
+        for snmp_tgt_prm_name in from_switch.get_all_snmp_target_params():
+            t_snmp_tgt_prm = self.get_snmp_target_params(snmp_tgt_prm_name)
+            t_snmp_tgt_prm.transfer_config(
+                from_switch._snmp_target_params[snmp_tgt_prm_name])
+
+        for snmp_tgt_addr_name in from_switch.get_all_snmp_target_addrs():
+            t_snmp_tgt_addr = self.get_snmp_target_addr(snmp_tgt_addr_name)
+            t_snmp_tgt_addr.transfer_config(
+                from_switch._snmp_target_addrs[snmp_tgt_addr_name])
+
+        for user_account_name in from_switch.get_all_user_accounts():
+            t_user_account = self.get_user_account(user_account_name)
+            t_user_account.transfer_config(
+                from_switch._user_accounts[user_account_name])
 
     def get_acls(self):
         return self._acls
@@ -1018,8 +1363,8 @@ class ConfigWriter:
     """
 
     def __init__(self, switch):
-        self._feature_modules = ['port', 'lag', 'vlan', 'stp', 'acl', 'mgmt',
-                                 'basic_layer_3']
+        self._feature_modules = ['port', 'lag', 'vlan', 'stp', 'acl',
+                                 'basic_layer_3', 'mgmt']
         self._switch = switch
 
     def check_unwritten(self):
@@ -1242,10 +1587,84 @@ class ConfigWriter:
             if sntp_srv.get_is_configured() and not sntp_srv.get_is_written():
                 unwritten.append('WARN: SNTP server ' + str(sntp_srv) +
                                  ' configured, but omitted from translation')
+        for idx in self._switch.get_all_radius_servers():
+            if (self._switch._radius_servers[idx].get_is_configured() and
+                    not self._switch._radius_servers[idx].get_is_written()):
+                unwritten.append('WARN: RADIUS server ' + str(idx) +
+                                 ' configured, but omitted from translation')
+        for idx in self._switch.get_all_tacacs_servers():
+            if (self._switch._tacacs_servers[idx].get_is_configured() and
+                    not self._switch._tacacs_servers[idx].get_is_written()):
+                unwritten.append('WARN: TACACS+ server ' + str(idx) +
+                                 ' configured, but omitted from translation')
         if self._switch.get_sntp_client_reason() == 'transfer_conf':
             unwritten.append('WARN: SNTP client mode "' +
                              str(self._switch.get_sntp_client()) +
                              '" omitted from translation')
+        if self._switch.get_tz_name_reason() == 'transfer_conf':
+            unwritten.append('WARN: Timezone name "' +
+                             str(self._switch.get_tz_name()) +
+                             '" omitted from translation')
+        if self._switch.get_tz_off_min_reason() == 'transfer_conf':
+            unwritten.append('WARN: Timezone offset "' +
+                             str(self._switch.get_tz_off_min()) +
+                             '" (minutes) omitted from translation')
+        if self._switch.get_tz_dst_state_reason() == 'transfer_conf':
+            unwritten.append('WARN: Timezone DST state "' +
+                             str(self._switch.get_tz_dst_state()) +
+                             '" omitted from translation')
+        if self._switch.get_tz_dst_name_reason() == 'transfer_conf':
+            unwritten.append('WARN: Timezone DST name "' +
+                             str(self._switch.get_tz_dst_name()) +
+                             '" omitted from translation')
+        if self._switch.get_tz_dst_start_reason() == 'transfer_conf':
+            unwritten.append('WARN: Timezone DST start "' +
+                             str(self._switch.get_tz_dst_start()) +
+                             '" omitted from translation')
+        if self._switch.get_tz_dst_end_reason() == 'transfer_conf':
+            unwritten.append('WARN: Timezone DST end "' +
+                             str(self._switch.get_tz_dst_end()) +
+                             '" omitted from translation')
+        if self._switch.get_tz_dst_off_min_reason() == 'transfer_conf':
+            unwritten.append('WARN: Timezone DST offset "' +
+                             str(self._switch.get_tz_dst_off_min()) +
+                             '" (minutes) omitted from translation')
+        _tc = 'transfer_conf'
+        if self._switch.get_radius_mgmt_acc_enabled_reason() == _tc:
+            unwritten.append('WARN: RADIUS for management access "' +
+                             str(self._switch.get_radius_mgmt_acc_enabled()) +
+                             '" omitted from translation')
+        if self._switch.get_radius_interface_reason() == 'transfer_conf':
+            unwritten.append('WARN: RADIUS interface "' +
+                             str(self._switch.get_radius_interface_type()) +
+                             ' ' +
+                             str(self._switch.get_radius_interface_number()) +
+                             '" omitted from translation')
+        if self._switch.get_tacacs_enabled_reason() == 'transfer_conf':
+            unwritten.append('WARN: TACACS+ for management access "' +
+                             str(self._switch.get_tacacs_enabled()) +
+                             '" omitted from translation')
+        if self._switch.get_tacacs_interface_reason() == 'transfer_conf':
+            unwritten.append('WARN: TACACS+ interface "' +
+                             str(self._switch.get_tacacs_interface_type()) +
+                             ' ' +
+                             str(self._switch.get_tacacs_interface_number()) +
+                             '" omitted from translation')
+        for name in self._switch.get_all_snmp_target_params():
+            if (self._switch._snmp_target_params[name].is_configured() and not
+                    self._switch._snmp_target_params[name].get_is_written()):
+                unwritten.append('WARN: SNMP target parameters ' + str(name) +
+                                 ' configured, but omitted from translation')
+        for name in self._switch.get_all_snmp_target_addrs():
+            if (self._switch._snmp_target_addrs[name].is_configured() and not
+                    self._switch._snmp_target_addrs[name].get_is_written()):
+                unwritten.append('WARN: SNMP target address ' + str(name) +
+                                 ' configured, but omitted from translation')
+        for name in self._switch.get_all_user_accounts():
+            if (self._switch._user_accounts[name].is_configured() and not
+                    self._switch._user_accounts[name].get_is_written()):
+                unwritten.append('WARN: User account ' + str(name) +
+                                 ' configured, but omitted from translation')
         # feature module Basic Layer 3
         if self._switch.get_ipv4_routing_reason() == 'transfer_conf':
             state = 'enabl' if self._switch.get_ipv4_routing() else 'disabl'

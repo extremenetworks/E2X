@@ -1,4 +1,8 @@
-SOURCES := $(wildcard src/*.py) src/shebang src/InteractiveModeCommandList.py
+SOURCES := $(wildcard src/*.py) src/shebang \
+           src/interactive_command_list_start src/interactive_command_list_end
+GENERATED := src/interactive_command_list_middle \
+             src/InteractiveModeCommandList.py
+ZIPSOURCES := $(wildcard src/*.py) src/InteractiveModeCommandList.py
 BINARY := e2x.py
 LICENSE := LICENSE.txt
 VERSION := $(shell sed -n "s/^progver = '\([^']*\)'$$/\1/p" src/cli.py)
@@ -6,7 +10,8 @@ DIST := $(patsubst %.py,%-$(VERSION)-src.zip,$(BINARY))
 BINDIST := $(patsubst %-src.zip,%-bin.zip,$(DIST))
 PREVIEW := $(patsubst %.py,%-preview.zip,$(BINARY))
 ZIP := $(patsubst %.py,%.zip,$(BINARY))
-TESTS := $(wildcard tests/*_test.py tests/scripttest/*.py)
+TESTS := $(wildcard tests/*_test.py tests/scripttest/*.py) \
+         tests/interactive_statements
 RUNTESTS := tests/run_tests.sh
 RUNTESTS_WIN := tests/run_tests.bat
 PYTHON := python3
@@ -16,22 +21,24 @@ HTMLDOCS := $(patsubst %.md,%.html,$(MARKDOWNDOCS))
 TEMPLATES := $(wildcard templates/*)
 TOOLS := $(wildcard tools/*)
 
-all: $(BINARY)
+all: $(BINARY) html
 
-$(BINARY): $(ZIP) src/shebang
+$(BINARY): $(GENERATED) $(ZIP) src/shebang
 	cat src/shebang $(ZIP) > $@
 	chmod +x $@
 
-$(ZIP): $(SOURCES) Makefile
-	zip -j $@ $(SOURCES)
+$(ZIP): $(SOURCES) $(GENERATED) Makefile
+	zip -j $@ $(ZIPSOURCES)
 
-src/InteractiveModeCommandList.py:
+src/interactive_command_list_middle: Makefile docs/ReleaseNotes.md
 	sed '1,/## Function Module Interactive/d;/^## .*$$/d' \
 		docs/ReleaseNotes.md | \
-		sed '1,/### Commands/d;s/^ *//;/^ *$$/d' | \
-		sed '1s/^/\nINT_MODE_CMD_LST = """\n/;$$s/$$/\n"""/' | \
-		sed '1s/^/\n# FILE IS GENERATED, DO NOT EDIT\n/' | \
-		cat templates/e2x_python_file - > $@
+		sed '1,/### Commands/d;s/^ *//;/^ *$$/d' > $@
+
+src/InteractiveModeCommandList.py: Makefile src/interactive_command_list_middle
+	cat src/interactive_command_list_start \
+		src/interactive_command_list_middle \
+		src/interactive_command_list_end > $@
 
 src-dist: $(DIST)
 
@@ -56,6 +63,7 @@ $(PREVIEW): $(BINARY) $(SOURCES) $(TESTS) $(RUNTESTS) $(RUNTESTS_WIN) \
 
 check: $(BINARY)
 	-$(RUNTESTS)
+	@echo
 	$(PYTHON) $(INTEGRATIONTEST) $(BINARY)
 
 %.html : %.md Makefile
@@ -64,12 +72,11 @@ check: $(BINARY)
 html: $(HTMLDOCS) Makefile
 
 clean:
-	$(RM) -r $(BINARY) $(PREVIEW) $(HTMLDOCS) \
-		src/InteractiveModeCommandList.py
+	$(RM) -r $(BINARY) $(PREVIEW) $(HTMLDOCS) $(GENERATED)
 
 distclean: clean
 	$(RM) -r __pycache__ src/__pycache__ tests/scripttest/__pycache__ \
-		$(wildcard src/*.pyc)
+		$(wildcard src/*.pyc) $(GENERATED)
 
-.PHONY: clean distclean check src/InteractiveModeCommandList.py
+.PHONY: clean distclean check
 .INTERMEDIATE: $(ZIP)

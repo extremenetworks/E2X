@@ -25,54 +25,59 @@
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
 
-"""Representation of an SNTP server configuration.
+"""Representation of a RADIUS server configuration.
 
 Classes:
-    SntpServer - Represents configuration options for an SNTP server
+    RadiusServer - Represents configuration options for a RADIUS server
 """
 
 
-class SntpServer:
+class RadiusServer:
 
-    """Representation of an SNTP server as seen from a switch.
+    """Representation of a RADIUS server as seen from a switch.
 
-    Available attributes are based on the EOS 'set sntp server' command.
-    Usually there is no SNTP server configured in the switch
+    Available attributes are based on the EOS 'set radius' command.
+    Usually there is no RADIUS server configured in the switch
     defaults, so every non-None attribute is considered as a configured
     value.
     """
 
     def __init__(self):
-        self._attributes = {}
-        self._is_configured = None
+        self._ip = None
+        self._port = None
+        self._secret = None
+        self._realm = None
+        self._is_configured = False
         self._is_written = False
 
     def __str__(self):
-        s = ''
-        for (k, v) in self._attributes.items():
-            s += ' ' + str(k).capitalize() + ': ' + str(v) + ','
-        return s[:-1]
-
-    def set_precedence(self, precedence):
-        self._attributes['precedence'] = precedence
-
-    def get_precedence(self):
-        return self._attributes.get('precedence')
-
-    def get_default_precedence(self):
-        return self._attributes.get('def_precedence')
+        s = (str(self._ip) + ':' + str(self._port) + ', ' + str(self._secret) +
+             ', ' + str(self._realm))
+        return s
 
     def set_ip(self, ip):
-        self._attributes['ip'] = ip
+        self._ip = ip
 
     def get_ip(self):
-        return self._attributes.get('ip')
+        return self._ip
 
-    def get_attributes(self):
-        return self._attributes
+    def set_port(self, port):
+        self._port = port
 
-    def update_attributes(self, attrs):
-        self._attributes.update(attrs)
+    def get_port(self):
+        return self._port
+
+    def set_secret(self, secret):
+        self._secret = secret
+
+    def get_secret(self):
+        return self._secret
+
+    def set_realm(self, realm):
+        self._realm = realm
+
+    def get_realm(self):
+        return self._realm
 
     def set_is_configured(self, boolean):
         self._is_configured = boolean
@@ -86,9 +91,12 @@ class SntpServer:
     def get_is_written(self):
         return self._is_written
 
-    def transfer_config(self, from_sntp_conf):
-        self._attributes.update(from_sntp_conf.get_attributes())
-        self._is_configured = from_sntp_conf.get_is_configured()
-        self._is_written = from_sntp_conf.get_is_written()
+    def transfer_config(self, from_radius_conf):
+        self._ip = from_radius_conf.get_ip()
+        self._port = from_radius_conf.get_port()
+        self._secret = from_radius_conf.get_secret()
+        self._realm = from_radius_conf.get_realm()
+        self._is_configured = from_radius_conf.get_is_configured()
+        self._is_written = from_radius_conf.get_is_written()
 
 # vim:filetype=python:expandtab:shiftwidth=4:tabstop=4

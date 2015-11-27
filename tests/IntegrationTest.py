@@ -70,6 +70,13 @@ class IntegrationTest(unittest.TestCase):
                         "respectively RSTP configuration",
                         "INFO: XOS does not support automatic RSTP/MSTP edge "
                         "port detection"]
+    ignore_user = ['NOTICE: Ignoring user account "rw" as EXOS does not'
+                   ' differentiate super-user rights from read-write',
+                   'NOTICE: Transfering "ro" user account settings to "user"',
+                   'NOTICE: User account "admin" has no password, consider'
+                   ' setting with "configure account admin" on EXOS',
+                   'NOTICE: User account "user" has no password, consider'
+                   ' setting with "configure account user" on EXOS']
 
     # EOS has jumbo frames enabled by default
     def_jumbo_conf = ['enable jumbo-frame ports ' + str(i) + '\n'
@@ -103,11 +110,20 @@ class IntegrationTest(unittest.TestCase):
         'NOTICE: Port "52" of target switch is not used\n',
     ]
     def_lag_msg = ['NOTICE: XOS always allows single port LAGs\n']
+    def_usr_msg = [
+        'NOTICE: Ignoring user account "rw" as EXOS does not differentiate'
+        ' super-user rights from read-write\n',
+        'NOTICE: Transfering "ro" user account settings to "user"\n',
+        'NOTICE: User account "admin" has no password, consider setting with'
+        ' "configure account admin" on EXOS\n',
+        'NOTICE: User account "user" has no password, consider setting with'
+        ' "configure account user" on EXOS\n',
+    ]
 
     # default config generated with empty input file
     default_config = (def_jumbo_conf + def_stp_conf + def_web_conf +
                       def_mgmt_conf + def_idle_conf)
-    default_messages = def_map_msg + def_lag_msg
+    default_messages = def_map_msg + def_lag_msg + def_usr_msg
 
     # known unknown commands (adjust after learning them)
     unknown_cmds = [
@@ -131,6 +147,9 @@ class IntegrationTest(unittest.TestCase):
         'set logo\n',
         'set logout fubar\n',
         'set logout 42 minutes\n',
+        'set ip address 10.1.1.1 interface vlan.0.2 mask 255.255.255.0\n',
+        'set ip address 10.1.1.1 interface vlan.0.2 mask 255.255.255.0 gateway'
+        ' 10.0.0.1\n',
     ]
     unknown_tmpl = 'NOTICE: Ignoring unknown command "{}"\n'
     unknown_notices = []
@@ -139,6 +158,16 @@ class IntegrationTest(unittest.TestCase):
     unknown_errors = []
     for c in unknown_notices:
         unknown_errors.append(c.replace('NOTICE', 'ERROR', 1))
+
+    # EOS configuration that results in empty translation for EXOS
+    eos_to_exos_defaults_conf = [
+        'set port jumbo disable *.*.*\n',
+        'set spantree disable\n',
+        'set logout 20\n',
+        'clear system login rw\n',
+        'set lacp singleportlag enable\n',
+        'set ip protocol none\n',
+    ]
 
     @classmethod
     def setUpClass(cls):
@@ -504,7 +533,7 @@ class IntegrationTest(unittest.TestCase):
                                   expect_stderr=True)
         self.assertEqual(ret.returncode, 1, "Wrong exit code")
         self.assertEqual(ret.stderr, "ERROR: VLAN 100 not found (set port "
-                                     "vlan)\n", "Unexpected Error")
+                                     "vlan ge.1.1 100)\n", "Unexpected Error")
         # expected output <ERROR: VLAN 100 not found (set port vlan)> because
         # there is no VLAN 100 yet
 
@@ -731,7 +760,8 @@ class IntegrationTest(unittest.TestCase):
                             'INFO: Creating XOS equivalent of EOS default MSTP'
                             ' respectively RSTP configuration',
                             'INFO: XOS does not support automatic RSTP/MSTP'
-                            ' edge port detection'] + self.ignore_port_mapping)
+                            ' edge port detection'] +
+                           self.ignore_port_mapping + self.ignore_user)
 
     def test_case_043(self):
         self.create_input('testinput', ['set vlan name 1 "DEFAULT VLAN"\n'])
@@ -947,6 +977,12 @@ class IntegrationTest(unittest.TestCase):
                            [
                                'enable sharing 1 grouping 1-2 algorithm '
                                'address-based L3 lacp\n',
+                               'configure ports 1 display-string LAG_One\n',
+                               'configure ports 2 display-string LAG_One\n',
+                               'configure ports 1 description-string '
+                               '"LAG_One"\n',
+                               'configure ports 2 description-string '
+                               '"LAG_One"\n',
                                'configure vlan Default delete ports 2\n',
                            ],
                            self.default_ignores)
@@ -1024,6 +1060,8 @@ class IntegrationTest(unittest.TestCase):
         expected_errors = [
             'NOTICE: Writing translated configuration to file '
             '"testoutput.xsf"\n',
+            'ERROR: Existing VLAN 1 mapped to MST instance 0 (CIST), but EXOS'
+            ' cannot map any VLANs to the CIST\n',
             'ERROR: No VLANs associated with any MST instance\n',
             'WARN: VLAN "Default" with tag "1" is not part of any MST'
             ' instance\n',
@@ -1033,12 +1071,13 @@ class IntegrationTest(unittest.TestCase):
                            self.ignore_mgmt + self.ignore_idle)
         self.stderrToFile(ret.stderr, 'stderr')
         self.verify_output('stderr', expected_errors,
-                           ['Mapping', 'Port', 'LAGs'])
+                           ['Mapping', 'Port', 'LAGs', 'ser account'])
         self.assertEqual(ret.returncode, 1)
 
     def test_case_063(self):
         self.runner(['set spantree msti sid 2 create\n', 'set vlan create 2000'
-                     '\n', 'set spantree mstmap 2000 sid 2\n'], [],
+                     '\n', 'set spantree mstmap 2000 sid 2\n', 'set spantree '
+                     'mstmap 1 sid 2\n'], [],
                     ['create vlan VLAN_2000 tag 2000\n',
                      'configure mstp revision 0\n',
                      'configure stpd s0 delete vlan Default ports all\n',
@@ -1048,6 +1087,7 @@ class IntegrationTest(unittest.TestCase):
                      'create stpd s2\n',
                      'configure stpd s2 default-encapsulation dot1d\n',
                      'configure stpd s2 mode mstp msti 2\n',
+                     'enable stpd s2 auto-bind vlan Default\n',
                      'enable stpd s2 auto-bind vlan VLAN_2000\n',
                      'enable stpd s2\n',
                      ],
@@ -1070,7 +1110,7 @@ class IntegrationTest(unittest.TestCase):
                             ' "testoutput.xsf"\n',
                             'WARN: XOS does not send BPDUs on RSTP/MSTP edge'
                             ' ports without edge-safeguard\n'],
-                           ['Mapping', 'Port', 'LAGs'])
+                           ['Mapping', 'Port', 'LAGs', 'ser account'])
 
     def test_case_065(self):
         self.runner([], [], self.std_stp_conf +
@@ -1150,7 +1190,7 @@ class IntegrationTest(unittest.TestCase):
         opts = ['--verbose']
         ignore_conf = (self.jumbo_ignore + self.ignore_web + self.ignore_mgmt +
                        self.ignore_idle)
-        ignore_err = ['Mapping', 'Port', 'LAG', 'VLAN 1 ']
+        ignore_err = ['Mapping', 'Port', 'LAG', 'VLAN 1 ', 'ser account']
         self.create_input('testinput', eos_conf)
         ret = self.script_env.run(self.script, '-otestoutput.xsf', 'testinput',
                                   *opts, expect_stderr=True)
@@ -1174,7 +1214,7 @@ class IntegrationTest(unittest.TestCase):
         opts = ['--verbose']
         ignore_conf = (self.jumbo_ignore + self.ignore_web + self.ignore_mgmt +
                        self.ignore_idle)
-        ignore_err = ['Mapping', 'Port', 'LAG', 'VLAN 1 ']
+        ignore_err = ['Mapping', 'Port', 'LAG', 'VLAN 1 ', 'ser account']
         self.create_input('testinput', eos_conf)
         ret = self.script_env.run(self.script, '-otestoutput.xsf', 'testinput',
                                   *opts, expect_stderr=True)
@@ -1198,7 +1238,7 @@ class IntegrationTest(unittest.TestCase):
         opts = ['--verbose']
         ignore_conf = (self.jumbo_ignore + self.ignore_web + self.ignore_mgmt +
                        self.ignore_idle)
-        ignore_err = ['Mapping', 'Port', 'LAG', 'VLAN 1 ']
+        ignore_err = ['Mapping', 'Port', 'LAG', 'VLAN 1 ', 'ser account']
         self.create_input('testinput', eos_conf)
         ret = self.script_env.run(self.script, '-otestoutput.xsf', 'testinput',
                                   *opts, expect_stderr=True)
@@ -1209,7 +1249,7 @@ class IntegrationTest(unittest.TestCase):
     def test_case_129(self):
         self.runner(['set spantree msti sid 2 create\n',
                      'set vlan create 2000\n',
-                     'set spantree mstmap 2000 sid 2\n',
+                     'set spantree mstmap 1,2000 sid 2\n',
                      'set vlan create 2001\n',
                      'set spantree msti sid 3 create\n',
                      'set spantree mstmap 2001 sid 3\n'], [],
@@ -1223,6 +1263,7 @@ class IntegrationTest(unittest.TestCase):
                      'create stpd s2\n',
                      'configure stpd s2 default-encapsulation dot1d\n',
                      'configure stpd s2 mode mstp msti 2\n',
+                     'enable stpd s2 auto-bind vlan Default\n',
                      'enable stpd s2 auto-bind vlan VLAN_2000\n',
                      'enable stpd s2\n',
                      'create stpd s3\n',
@@ -1296,6 +1337,7 @@ class IntegrationTest(unittest.TestCase):
              '61.114.43.33 eq 520 assign-queue 5\n',
              'access-list 100 permit udp host 61.114.43.33 eq 161 host '
              '61.88.12.34 tos ff cb assign-queue 4\n',
+             'access-list 100 permit tcp any any established\n',
              'exit\n', 'exit\n', 'exit\n'
              ])
         ret = self.script_env.run(self.script, 'acl.cfg', '--log-level=WARN',
@@ -1321,6 +1363,8 @@ class IntegrationTest(unittest.TestCase):
             'WARN: Ignoring "tos ff cb assign-queue 4" in "access-list 100 '
             'permit udp host 61.114.43.33 eq 161 host 61.88.12.34 tos ff cb '
             'assign-queue 4"\n',
+            'WARN: Ignoring "established" in "access-list 100 permit tcp any '
+            'any established"\n',
             ], [])
         self.assertEqual(ret.returncode, 0, "Wrong exit code")
 
@@ -1825,7 +1869,8 @@ class IntegrationTest(unittest.TestCase):
                             'NOTICE: Port "52" of target switch is not used\n',
                             ],
                            self.ignore_outfile + self.ignore_lag_info +
-                           self.ignore_info_vlan_1 + self.ignore_stpd_info)
+                           self.ignore_info_vlan_1 + self.ignore_stpd_info +
+                           self.ignore_user)
 
     def test_case_090(self):  # test print stack notice
         self.create_input('empty.cfg', [])
@@ -1848,7 +1893,8 @@ class IntegrationTest(unittest.TestCase):
             'configure stacking\n',
             ],
             self.ignore_outfile + self.ignore_lag_info +
-            self.ignore_info_vlan_1 + self.ignore_stpd_info)
+            self.ignore_info_vlan_1 + self.ignore_stpd_info +
+            self.ignore_user)
 
     def test_case_091(self):  # test a stack config translation
         self.create_input('stack.cfg', ['set port disable ge.*.44-48\n',
@@ -2009,8 +2055,8 @@ class IntegrationTest(unittest.TestCase):
 
     def test_case_108(self):  # banners with login ack
         self.create_input('test.cfg', [
-            r'set banner login "***\n*** --- Login Banner ---\n***"' '\n'
-            r'set banner motd "***\n*** --- Message of the Day ---\n***"' '\n'
+            r'set banner login "***\n***\t--- Login Banner ---\n***"' '\n'
+            r'set banner motd "***\n***\t--- Message of the Day ---\n***"' '\n'
         ])
         ret = self.script_env.run(self.script, 'test.cfg', expect_stderr=True)
         self.stderrToFile(ret.stderr, 'stderr')
@@ -2018,13 +2064,13 @@ class IntegrationTest(unittest.TestCase):
             'configure banner before-login acknowledge '
             'save-to-configuration\n',
             '***\n',
-            '*** --- Login Banner ---\n',
+            '***\t--- Login Banner ---\n',
             '***\n',
             'Press RETURN to proceed to login\n',
             '\n',
             'configure banner after-login\n',
             '***\n',
-            '*** --- Message of the Day ---\n',
+            '***\t--- Message of the Day ---\n',
             '***\n',
             '\n',
         ], self.default_ignores)
@@ -2032,11 +2078,11 @@ class IntegrationTest(unittest.TestCase):
                            self.default_ignores + self.ignore_outfile +
                            self.ignore_lag_info + self.ignore_info_vlan_1 +
                            self.ignore_port_mapping + self.ignore_stpd_info +
-                           self.ignore_unused_ports)
+                           self.ignore_unused_ports + self.ignore_user)
 
     def test_case_109(self):  # login banner w/o ack
         self.create_input('test.cfg', [
-            r'set banner login "***\n*** --- Login Banner ---\n***"' '\n'
+            r'set banner login "***\n***\t--- Login Banner ---\n***"' '\n'
         ])
         ret = self.script_env.run(self.script, 'test.cfg', '--ignore-defaults',
                                   expect_stderr=True)
@@ -2044,7 +2090,7 @@ class IntegrationTest(unittest.TestCase):
         self.verify_output('test.xsf', [
             'configure banner before-login save-to-configuration\n',
             '***\n',
-            '*** --- Login Banner ---\n',
+            '***\t--- Login Banner ---\n',
             '***\n',
             '\n',
         ], self.default_ignores)
@@ -2056,7 +2102,7 @@ class IntegrationTest(unittest.TestCase):
 
     def test_case_110(self):  # login banner w/o ack and empty line
         self.create_input('test.cfg', [
-            r'set banner login "***\n\n*** --- Login Banner ---\n***"' '\n'
+            r'set banner login "***\n\n***\t--- Login Banner ---\n***"' '\n'
         ])
         ret = self.script_env.run(self.script, 'test.cfg', '--ignore-defaults',
                                   expect_stderr=True)
@@ -2064,7 +2110,7 @@ class IntegrationTest(unittest.TestCase):
         self.verify_output('test.xsf', [
             'configure banner before-login save-to-configuration\n',
             '***\n',
-            '*** --- Login Banner ---\n',
+            '***\t--- Login Banner ---\n',
             '***\n',
             '\n',
         ], self.default_ignores)
@@ -2090,7 +2136,7 @@ class IntegrationTest(unittest.TestCase):
                            self.default_ignores + self.ignore_outfile +
                            self.ignore_lag_info + self.ignore_info_vlan_1 +
                            self.ignore_port_mapping + self.ignore_stpd_info +
-                           self.ignore_unused_ports)
+                           self.ignore_unused_ports + self.ignore_user)
 
     def test_case_112(self):  # disable telnet all without defaults
         self.create_input('test.cfg', [
@@ -2123,7 +2169,7 @@ class IntegrationTest(unittest.TestCase):
                            self.default_ignores + self.ignore_outfile +
                            self.ignore_lag_info + self.ignore_info_vlan_1 +
                            self.ignore_port_mapping + self.ignore_stpd_info +
-                           self.ignore_unused_ports)
+                           self.ignore_unused_ports + self.ignore_user)
 
     def test_case_114(self):  # disable telnet inbound without defaults
         self.create_input('test.cfg', [
@@ -2154,7 +2200,7 @@ class IntegrationTest(unittest.TestCase):
                            self.default_ignores + self.ignore_outfile +
                            self.ignore_lag_info + self.ignore_info_vlan_1 +
                            self.ignore_port_mapping + self.ignore_stpd_info +
-                           self.ignore_unused_ports)
+                           self.ignore_unused_ports + self.ignore_user)
 
     def test_case_116(self):  # enable telnet outbound without defaults
         self.create_input('test.cfg', [
@@ -2233,7 +2279,7 @@ class IntegrationTest(unittest.TestCase):
                            self.default_ignores + self.ignore_outfile +
                            self.ignore_lag_info + self.ignore_info_vlan_1 +
                            self.ignore_port_mapping + self.ignore_stpd_info +
-                           self.ignore_unused_ports)
+                           self.ignore_unused_ports + self.ignore_user)
 
     def test_case_131(self):  # verify defaults from empty input config
         self.create_input('empty.cfg', [])
@@ -2751,7 +2797,8 @@ class IntegrationTest(unittest.TestCase):
                            'interface vlan 42\n',
                            'ip address 192.0.2.1 255.255.255.192\n',
                            'ip address 192.0.2.65 255.255.255.192 secondary\n',
-                           'ip address 192.0.2.129 255.255.255.192\n',
+                           'ip address 192.0.2.129 255.255.255.192'
+                           ' secondary\n',
                            'no shutdown\n',
                            'exit\n', 'exit\n', 'exit\n', 'exit\n',
                            ])
@@ -2831,7 +2878,8 @@ class IntegrationTest(unittest.TestCase):
                            'interface loopback 2\n',
                            'ip address 192.0.2.1 255.255.255.192\n',
                            'ip address 192.0.2.65 255.255.255.192 secondary\n',
-                           'ip address 192.0.2.129 255.255.255.192\n',
+                           'ip address 192.0.2.129 255.255.255.192'
+                           ' secondary\n',
                            'no shutdown\n',
                            'exit\n', 'exit\n', 'exit\n', 'exit\n',
                            ])
@@ -2984,6 +3032,757 @@ class IntegrationTest(unittest.TestCase):
                             ' 192.0.2.202\n',
                             ],
                            [])
+
+    def test_case_180(self):  # timezone and summer time CE(S)T
+        self.create_input('time.cfg',
+                          ['set timezone CET 1\n',
+                           'set summertime recurring last sunday march 02:00'
+                           ' last sunday october 03:00 60\n',
+                           'set summertime enable CEST\n',
+                           ])
+        self.script_env.run(self.script, 'time.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('time.xsf',
+                           ['configure timezone name CET 60 autodst name CEST'
+                            ' 60 begins every last sunday march at 02 00 ends'
+                            ' every last sunday october at 03 00\n',
+                            ],
+                           [])
+
+    def test_case_181(self):  # timezone UTC
+        self.create_input('time.cfg',
+                          ['set timezone UTC 0\n',
+                           ])
+        self.script_env.run(self.script, 'time.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('time.xsf',
+                           ['configure timezone name UTC 0 noautodst\n'
+                            ],
+                           [])
+
+    def test_case_182(self):  # timezone UTC w/o offset
+        self.create_input('time.cfg',
+                          ['set timezone UTC\n',
+                           ])
+        self.script_env.run(self.script, 'time.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('time.xsf',
+                           ['configure timezone name UTC 0 noautodst\n'
+                            ],
+                           [])
+
+    def test_case_183(self):  # timezone MSK
+        self.create_input('time.cfg',
+                          ['set timezone MSK 3\n',
+                           ])
+        self.script_env.run(self.script, 'time.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('time.xsf',
+                           ['configure timezone name MSK 180 noautodst\n'
+                            ],
+                           [])
+
+    def test_case_184(self):  # timezone AWST
+        self.create_input('time.cfg',
+                          ['set timezone AWST 08 00\n',
+                           ])
+        self.script_env.run(self.script, 'time.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('time.xsf',
+                           ['configure timezone name AWST 480 noautodst\n'
+                            ],
+                           [])
+
+    def test_case_185(self):  # timezone and summer time AC(S|D)T
+        self.create_input('time.cfg',
+                          ['set timezone ACST 9 30\n',
+                           'set summertime recurring last sunday october 02:00'
+                           ' last sunday march 03:00 60\n',
+                           'set summertime enable ACDT\n',
+                           ])
+        self.script_env.run(self.script, 'time.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('time.xsf',
+                           ['configure timezone name ACST 570 autodst name '
+                            'ACDT 60 begins every last sunday october at 02 00'
+                            ' ends every last sunday march at 03 00\n',
+                            ],
+                           [])
+
+    def test_case_186(self):  # timezone and summer time P(S|D)T
+        self.create_input('time.cfg',
+                          ['set timezone PST -8\n',
+                           'set summertime recurring second sunday march 02:00'
+                           ' first sunday november 02:00 60\n',
+                           'set summertime enable PDT\n',
+                           ])
+        self.script_env.run(self.script, 'time.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('time.xsf',
+                           ['configure timezone name PST -480 autodst name '
+                            'PDT 60 begins every second sunday march at 02 00'
+                            ' ends every first sunday november at 02 00\n',
+                            ],
+                           [])
+
+    def test_case_187(self):  # radius server for management access
+        self.create_input('aaa.cfg',
+                          ['set ip address 192.0.2.1 mask 255.255.255.0\n',
+                           'set host vlan 1\n',
+                           'set radius server 3 192.0.2.33 1812 SECRET'
+                           ' realm management-access\n',
+                           'set radius server 2 192.0.2.42 1645 PASSWORD'
+                           ' realm management-access\n',
+                           'set radius enable\n',
+                           ])
+        self.script_env.run(self.script, 'aaa.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('aaa.xsf',
+                           ['configure vlan Default ipaddress 192.0.2.1'
+                            ' 255.255.255.0\n',
+                            'configure radius mgmt-access primary server'
+                            ' 192.0.2.42 1645 client-ip 192.0.2.1'
+                            ' shared-secret PASSWORD vr VR-Default\n',
+                            'configure radius mgmt-access secondary server'
+                            ' 192.0.2.33 1812 client-ip 192.0.2.1'
+                            ' shared-secret SECRET vr VR-Default\n',
+                            'enable radius mgmt-access\n',
+                            ],
+                           [])
+
+    def test_case_188(self):  # radius server for management access w/intf
+        self.create_input('aaa.cfg',
+                          ['router\n', 'enable\n', 'configure\n',
+                           'interface vlan 1\n',
+                           'ip address 192.0.2.1 255.255.255.0\n',
+                           'no shutdown\n',
+                           'exit\n', 'exit\n', 'exit\n', 'exit\n',
+                           'set radius server 3 192.0.2.33 1812 SECRET'
+                           ' realm management-access\n',
+                           'set radius server 2 192.0.2.42 1645 PASSWORD'
+                           ' realm management-access\n',
+                           'set radius interface vlan 1\n',
+                           'set radius enable\n',
+                           ])
+        self.script_env.run(self.script, 'aaa.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('aaa.xsf',
+                           ['configure vlan Default ipaddress 192.0.2.1'
+                            ' 255.255.255.0\n',
+                            'configure radius mgmt-access primary server'
+                            ' 192.0.2.42 1645 client-ip 192.0.2.1'
+                            ' shared-secret PASSWORD vr VR-Default\n',
+                            'configure radius mgmt-access secondary server'
+                            ' 192.0.2.33 1812 client-ip 192.0.2.1'
+                            ' shared-secret SECRET vr VR-Default\n',
+                            'enable radius mgmt-access\n',
+                            ],
+                           [])
+
+    def test_case_189(self):  # radius server for management access int Lo0
+        self.create_input('aaa.cfg',
+                          ['router\n', 'enable\n', 'configure\n',
+                           'interface loopback 0\n',
+                           'ip address 192.0.2.1 255.255.255.0\n',
+                           'no shutdown\n',
+                           'exit\n', 'exit\n', 'exit\n', 'exit\n',
+                           'set radius server 3 192.0.2.33 1812 SECRET'
+                           ' realm management-access\n',
+                           'set radius server 2 192.0.2.42 1645 PASSWORD'
+                           ' realm management-access\n',
+                           'set radius enable\n',
+                           ])
+        self.script_env.run(self.script, 'aaa.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('aaa.xsf',
+                           ['create vlan Interface_Loopback_0\n',
+                            'enable loopback-mode vlan Interface_Loopback_0\n',
+                            'configure vlan Interface_Loopback_0 ipaddress'
+                            ' 192.0.2.1 255.255.255.0\n',
+                            'configure radius mgmt-access primary server'
+                            ' 192.0.2.42 1645 client-ip 192.0.2.1'
+                            ' shared-secret PASSWORD vr VR-Default\n',
+                            'configure radius mgmt-access secondary server'
+                            ' 192.0.2.33 1812 client-ip 192.0.2.1'
+                            ' shared-secret SECRET vr VR-Default\n',
+                            'enable radius mgmt-access\n',
+                            ],
+                           [])
+
+    def test_case_190(self):  # radius server for management access int Lo7
+        self.create_input('aaa.cfg',
+                          ['router\n', 'enable\n', 'configure\n',
+                           'interface loopback 7\n',
+                           'ip address 192.0.2.1 255.255.255.0\n',
+                           'no shutdown\n',
+                           'exit\n', 'exit\n', 'exit\n', 'exit\n',
+                           'set radius server 3 192.0.2.33 1812 SECRET'
+                           ' realm management-access\n',
+                           'set radius server 2 192.0.2.42 1645 PASSWORD'
+                           ' realm management-access\n',
+                           'set radius interface loopback 7\n',
+                           'set radius enable\n',
+                           ])
+        self.script_env.run(self.script, 'aaa.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('aaa.xsf',
+                           ['create vlan Interface_Loopback_7\n',
+                            'enable loopback-mode vlan Interface_Loopback_7\n',
+                            'configure vlan Interface_Loopback_7 ipaddress'
+                            ' 192.0.2.1 255.255.255.0\n',
+                            'configure radius mgmt-access primary server'
+                            ' 192.0.2.42 1645 client-ip 192.0.2.1'
+                            ' shared-secret PASSWORD vr VR-Default\n',
+                            'configure radius mgmt-access secondary server'
+                            ' 192.0.2.33 1812 client-ip 192.0.2.1'
+                            ' shared-secret SECRET vr VR-Default\n',
+                            'enable radius mgmt-access\n',
+                            ],
+                           [])
+
+    def test_case_191(self):  # radius server for management access, mgmt port
+        self.create_input('aaa.cfg',
+                          ['set ip address 192.0.2.1 mask 255.255.255.0\n',
+                           'set host vlan 1\n',
+                           'set radius server 3 192.0.2.33 1812 SECRET'
+                           ' realm management-access\n',
+                           'set radius server 2 192.0.2.42 1645 PASSWORD'
+                           ' realm management-access\n',
+                           'set radius enable\n',
+                           ])
+        self.script_env.run(self.script, 'aaa.cfg',
+                            '--ignore-defaults', '--log-level=WARN',
+                            '--mgmt-port')
+        self.verify_output('aaa.xsf',
+                           ['configure vlan Mgmt ipaddress 192.0.2.1'
+                            ' 255.255.255.0\n',
+                            'configure radius mgmt-access primary server'
+                            ' 192.0.2.42 1645 client-ip 192.0.2.1'
+                            ' shared-secret PASSWORD vr VR-Mgmt\n',
+                            'configure radius mgmt-access secondary server'
+                            ' 192.0.2.33 1812 client-ip 192.0.2.1'
+                            ' shared-secret SECRET vr VR-Mgmt\n',
+                            'enable radius mgmt-access\n',
+                            ],
+                           [])
+
+    def test_case_192(self):  # tacacs server
+        self.create_input('aaa.cfg',
+                          ['set ip address 192.0.2.1 mask 255.255.255.0\n',
+                           'set host vlan 1\n',
+                           'set tacacs server 3 192.0.2.33 49 SECRET\n',
+                           'set tacacs server 2 192.0.2.42 49 PASSWORD\n',
+                           'set tacacs enable\n',
+                           ])
+        self.script_env.run(self.script, 'aaa.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('aaa.xsf',
+                           ['configure vlan Default ipaddress 192.0.2.1'
+                            ' 255.255.255.0\n',
+                            'configure tacacs primary server'
+                            ' 192.0.2.42 49 client-ip 192.0.2.1'
+                            ' vr VR-Default\n',
+                            'configure tacacs primary shared-secret'
+                            ' PASSWORD\n',
+                            'configure tacacs secondary server'
+                            ' 192.0.2.33 49 client-ip 192.0.2.1'
+                            ' vr VR-Default\n',
+                            'configure tacacs secondary shared-secret'
+                            ' SECRET\n',
+                            'enable tacacs\n',
+                            ],
+                           [])
+
+    def test_case_193(self):  # tacacs server, mgmt port
+        self.create_input('aaa.cfg',
+                          ['set ip address 192.0.2.1 mask 255.255.255.0\n',
+                           'set host vlan 1\n',
+                           'set tacacs server 3 192.0.2.33 49 SECRET\n',
+                           'set tacacs server 2 192.0.2.42 49 PASSWORD\n',
+                           'set tacacs enable\n',
+                           ])
+        self.script_env.run(self.script, 'aaa.cfg',
+                            '--ignore-defaults', '--log-level=WARN',
+                            '--mgmt-port')
+        self.verify_output('aaa.xsf',
+                           ['configure vlan Mgmt ipaddress 192.0.2.1'
+                            ' 255.255.255.0\n',
+                            'configure tacacs primary server'
+                            ' 192.0.2.42 49 client-ip 192.0.2.1'
+                            ' vr VR-Mgmt\n',
+                            'configure tacacs primary shared-secret'
+                            ' PASSWORD\n',
+                            'configure tacacs secondary server'
+                            ' 192.0.2.33 49 client-ip 192.0.2.1'
+                            ' vr VR-Mgmt\n',
+                            'configure tacacs secondary shared-secret'
+                            ' SECRET\n',
+                            'enable tacacs\n',
+                            ],
+                           [])
+
+    def test_case_194(self):  # tacacs server default int Lo0
+        self.create_input('aaa.cfg',
+                          ['router\n', 'enable\n', 'configure\n',
+                           'interface loopback 0\n',
+                           'ip address 192.0.2.1 255.255.255.0\n',
+                           'no shutdown\n',
+                           'exit\n', 'exit\n', 'exit\n', 'exit\n',
+                           'set tacacs server 3 192.0.2.33 49 SECRET\n',
+                           'set tacacs server 2 192.0.2.42 49 PASSWORD\n',
+                           'set tacacs enable\n',
+                           ])
+        self.script_env.run(self.script, 'aaa.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('aaa.xsf',
+                           ['create vlan Interface_Loopback_0\n',
+                            'enable loopback-mode vlan Interface_Loopback_0\n',
+                            'configure vlan Interface_Loopback_0 ipaddress'
+                            ' 192.0.2.1 255.255.255.0\n',
+                            'configure tacacs primary server'
+                            ' 192.0.2.42 49 client-ip 192.0.2.1'
+                            ' vr VR-Default\n',
+                            'configure tacacs primary shared-secret'
+                            ' PASSWORD\n',
+                            'configure tacacs secondary server'
+                            ' 192.0.2.33 49 client-ip 192.0.2.1'
+                            ' vr VR-Default\n',
+                            'configure tacacs secondary shared-secret'
+                            ' SECRET\n',
+                            'enable tacacs\n',
+                            ],
+                           [])
+
+    def test_case_195(self):  # tacacs server manual int Lo5
+        self.create_input('aaa.cfg',
+                          ['router\n', 'enable\n', 'configure\n',
+                           'interface loopback 5\n',
+                           'ip address 192.0.2.1 255.255.255.0\n',
+                           'no shutdown\n',
+                           'exit\n', 'exit\n', 'exit\n', 'exit\n',
+                           'set tacacs server 3 192.0.2.33 49 SECRET\n',
+                           'set tacacs server 2 192.0.2.42 49 PASSWORD\n',
+                           'set tacacs interface loopback 5\n',
+                           'set tacacs enable\n',
+                           ])
+        self.script_env.run(self.script, 'aaa.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('aaa.xsf',
+                           ['create vlan Interface_Loopback_5\n',
+                            'enable loopback-mode vlan Interface_Loopback_5\n',
+                            'configure vlan Interface_Loopback_5 ipaddress'
+                            ' 192.0.2.1 255.255.255.0\n',
+                            'configure tacacs primary server'
+                            ' 192.0.2.42 49 client-ip 192.0.2.1'
+                            ' vr VR-Default\n',
+                            'configure tacacs primary shared-secret'
+                            ' PASSWORD\n',
+                            'configure tacacs secondary server'
+                            ' 192.0.2.33 49 client-ip 192.0.2.1'
+                            ' vr VR-Default\n',
+                            'configure tacacs secondary shared-secret'
+                            ' SECRET\n',
+                            'enable tacacs\n',
+                            ],
+                           [])
+
+    def test_case_196(self):  # tacacs server manual int Vlan 42
+        self.create_input('aaa.cfg',
+                          ['router\n', 'enable\n', 'configure\n',
+                           'interface vlan 42\n',
+                           'ip address 192.0.2.1 255.255.255.0\n',
+                           'no shutdown\n',
+                           'exit\n', 'exit\n', 'exit\n', 'exit\n',
+                           'set tacacs server 3 192.0.2.33 49 SECRET\n',
+                           'set tacacs server 2 192.0.2.42 49 PASSWORD\n',
+                           'set tacacs interface vlan 42\n',
+                           'set tacacs enable\n',
+                           ])
+        self.script_env.run(self.script, 'aaa.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('aaa.xsf',
+                           ['create vlan VLAN_0042 tag 42\n',
+                            'configure vlan VLAN_0042 ipaddress'
+                            ' 192.0.2.1 255.255.255.0\n',
+                            'configure tacacs primary server'
+                            ' 192.0.2.42 49 client-ip 192.0.2.1'
+                            ' vr VR-Default\n',
+                            'configure tacacs primary shared-secret'
+                            ' PASSWORD\n',
+                            'configure tacacs secondary server'
+                            ' 192.0.2.33 49 client-ip 192.0.2.1'
+                            ' vr VR-Default\n',
+                            'configure tacacs secondary shared-secret'
+                            ' SECRET\n',
+                            'enable tacacs\n',
+                            ],
+                           [])
+
+    def test_case_197(self):  # SNMP trap receiver
+        self.create_input('snmp.cfg',
+                          ['set snmp targetparams Pv1 user v1COMM'
+                           ' security-model v1 message-processing v1\n',
+                           'set snmp targetparams Pv2c user v2COMM'
+                           ' security-model v2c message-processing v2c\n',
+                           'set snmp targetaddr TRv1 192.0.2.55 param Pv1\n',
+                           'set snmp targetaddr TRv2c 192.0.2.56 param Pv2c\n',
+                           ])
+        self.script_env.run(self.script, 'snmp.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('snmp.xsf',
+                           ['configure snmp add trapreceiver 192.0.2.55'
+                            ' community v1COMM\n',
+                            'configure snmp add trapreceiver 192.0.2.56'
+                            ' community v2COMM\n',
+                            ],
+                           [])
+
+    def test_case_198(self):  # disable rw/ro user accounts
+        self.create_input('accounts.cfg',
+                          ['set system login ro read-only disable\n',
+                           'set system login rw read-write disable\n',
+                           ])
+        self.script_env.run(self.script, 'accounts.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('accounts.xsf',
+                           ['create account user user\n',
+                            'disable account user\n',
+                            ],
+                           [])
+
+    def test_case_199(self):  # disable rw/ro user accounts w/defaults
+        self.create_input('accounts.cfg',
+                          ['set system login ro read-only disable\n',
+                           'set system login rw read-write disable\n',
+                           ])
+        self.script_env.run(self.script, 'accounts.cfg', '--log-level=WARN')
+        self.verify_output('accounts.xsf', self.default_config +
+                           ['disable account user\n',
+                            ],
+                           [])
+
+    def test_case_200(self):  # create user accounts
+        self.create_input('accounts.cfg',
+                          ['set system login sysadmin super-user enable\n',
+                           'set system login support read-write enable\n',
+                           'set system login helpdesk read-only enable\n',
+                           'set system login consultant read-write disable'
+                           ' password s3cr3tp@ssw0rd\n',
+                           ])
+        self.script_env.run(self.script, 'accounts.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('accounts.xsf',
+                           ['create account admin consultant s3cr3tp@ssw0rd\n',
+                            'disable account consultant\n',
+                            'create account user helpdesk\n',
+                            'create account admin support\n',
+                            'create account admin sysadmin\n',
+                            ],
+                           [])
+
+    def test_case_201(self):  # encrypted password is ignored
+        self.create_input('accounts.cfg',
+                          ['set system login admin super-user enable password'
+                           ' :7c1a3d40b26abab519357f5b935beb10a92d2357b9639a'
+                           '62cb267947947df76f5407d85d1449730294:\n',
+                           ])
+        ret = self.script_env.run(self.script, 'accounts.cfg',
+                                  '--ignore-defaults', '--log-level=WARN',
+                                  expect_stderr=True)
+        self.verify_output('accounts.xsf',
+                           ['create account admin admin\n',
+                            ],
+                           [])
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr',
+                           ['WARN: Cannot convert encrypted password for'
+                            ' user account "admin"\n',
+                            ],
+                           [])
+
+    def test_case_202(self):  # delete rw/ro user accounts w/defaults
+        self.create_input('accounts.cfg',
+                          ['clear system login ro\n',
+                           'clear system login rw\n',
+                           ])
+        self.script_env.run(self.script, 'accounts.cfg', '--log-level=WARN')
+        self.verify_output('accounts.xsf', self.default_config +
+                           ['delete account user\n',
+                            ],
+                           [])
+
+    def test_case_203(self):  # SVI IP w/secondaries
+        self.create_input('svi.cfg',
+                          ['router\n', 'enable\n', 'configure\n',
+                           'ip routing\n',
+                           'interface vlan 42\n',
+                           'ip address 192.0.2.1 255.255.255.192\n',
+                           'ip address 192.0.2.129 255.255.255.192\n',
+                           'ip address 192.0.2.65 255.255.255.192 secondary\n',
+                           'no shutdown\n',
+                           'exit\n', 'exit\n', 'exit\n', 'exit\n',
+                           ])
+        self.script_env.run(self.script, 'svi.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('svi.xsf',
+                           ['create vlan VLAN_0042 tag 42\n',
+                            'configure vlan VLAN_0042 ipaddress 192.0.2.129'
+                            ' 255.255.255.192\n',
+                            'enable ipforwarding vlan VLAN_0042\n',
+                            'configure vlan VLAN_0042 add secondary-ipaddress'
+                            ' 192.0.2.65 255.255.255.192\n',
+                            ],
+                           [])
+
+    def test_case_204(self):  # Loopback IP w/secondaries
+        self.create_input('loopback.cfg',
+                          ['router\n', 'enable\n', 'configure\n',
+                           'ip routing\n',
+                           'interface loopback 2\n',
+                           'ip address 192.0.2.1 255.255.255.192\n',
+                           'ip address 192.0.2.129 255.255.255.192\n',
+                           'ip address 192.0.2.65 255.255.255.192 secondary\n',
+                           'no shutdown\n',
+                           'exit\n', 'exit\n', 'exit\n', 'exit\n',
+                           ])
+        self.script_env.run(self.script, 'loopback.cfg',
+                            '--ignore-defaults', '--log-level=WARN')
+        self.verify_output('loopback.xsf',
+                           ['create vlan Interface_Loopback_2\n',
+                            'enable loopback-mode vlan Interface_Loopback_2\n',
+                            'configure vlan Interface_Loopback_2 ipaddress '
+                            '192.0.2.129'
+                            ' 255.255.255.192\n',
+                            'enable ipforwarding vlan Interface_Loopback_2\n',
+                            'configure vlan Interface_Loopback_2 add '
+                            'secondary-ipaddress 192.0.2.65 255.255.255.192\n',
+                            ],
+                           [])
+
+    def test_case_205(self):  # wrong ip address command sequence (SVI)
+        self.create_input('svi.cfg',
+                          ['router\n', 'enable\n', 'configure\n',
+                           'ip routing\n',
+                           'interface vlan 42\n',
+                           'ip address 192.0.2.1 255.255.255.192\n',
+                           'ip address 192.0.2.65 255.255.255.192 secondary\n',
+                           'ip address 192.0.2.129 255.255.255.192\n',
+                           'no shutdown\n',
+                           'exit\n', 'exit\n', 'exit\n', 'exit\n',
+                           ])
+        ret = self.script_env.run(self.script, 'svi.cfg',
+                                  '--ignore-defaults', '--log-level=WARN',
+                                  expect_stderr=True, expect_error=True)
+        self.verify_output('svi.xsf',
+                           ['create vlan VLAN_0042 tag 42\n',
+                            'configure vlan VLAN_0042 ipaddress 192.0.2.1'
+                            ' 255.255.255.192\n',
+                            'enable ipforwarding vlan VLAN_0042\n',
+                            'configure vlan VLAN_0042 add secondary-ipaddress'
+                            ' 192.0.2.65 255.255.255.192\n',
+                            ],
+                           [])
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr',
+                           ['ERROR: Cannot change primary interface IP for'
+                            ' interface "interface vlan 42" with secondary'
+                            ' IP address(es) (ip address 192.0.2.129'
+                            ' 255.255.255.192)\n',
+                            ],
+                           [])
+
+    def test_case_206(self):  # wrong ip address command sequence (Lo7)
+        self.create_input('loopback.cfg',
+                          ['router\n', 'enable\n', 'configure\n',
+                           'ip routing\n',
+                           'interface loopback 7\n',
+                           'ip address 192.0.2.1 255.255.255.192\n',
+                           'ip address 192.0.2.65 255.255.255.192 secondary\n',
+                           'ip address 192.0.2.129 255.255.255.192\n',
+                           'no shutdown\n',
+                           'exit\n', 'exit\n', 'exit\n', 'exit\n',
+                           ])
+        ret = self.script_env.run(self.script, 'loopback.cfg',
+                                  '--ignore-defaults', '--log-level=WARN',
+                                  expect_stderr=True, expect_error=True)
+        self.verify_output('loopback.xsf',
+                           ['create vlan Interface_Loopback_7\n',
+                            'enable loopback-mode vlan Interface_Loopback_7\n',
+                            'configure vlan Interface_Loopback_7 ipaddress '
+                            '192.0.2.1'
+                            ' 255.255.255.192\n',
+                            'enable ipforwarding vlan Interface_Loopback_7\n',
+                            'configure vlan Interface_Loopback_7 add '
+                            'secondary-ipaddress 192.0.2.65 255.255.255.192\n',
+                            ],
+                           [])
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr',
+                           ['ERROR: Cannot change primary interface IP for'
+                            ' interface "interface loopback 7" with secondary'
+                            ' IP address(es) (ip address 192.0.2.129'
+                            ' 255.255.255.192)\n',
+                            ],
+                           [])
+
+    def test_case_207(self):  # static management address, DHCP manual on
+        self.create_input('mgmt.cfg',
+                          ['set ip protocol dhcp\n',
+                           'set ip address 192.0.2.11\n'])
+        ret = self.script_env.run(self.script, 'mgmt.cfg', '--log-level=WARN',
+                                  expect_stderr=True, expect_error=True)
+        self.verify_output('mgmt.xsf',
+                           ['configure vlan Default ipaddress 192.0.2.11 '
+                            '255.255.255.0\n'],
+                           self.jumbo_ignore + self.ignore_stpd +
+                           self.ignore_web + self.ignore_idle)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr',
+                           ['ERROR: Management IPv4 address configured'
+                            ' statically, but dynamic IPv4 address assignment'
+                            ' active, using static IPv4 address only\n',
+                            'WARN: Management IP protocol "dhcp" omitted from'
+                            ' translation\n',
+                            ],
+                           [])
+
+    def test_case_208(self):  # static management address, BOOTP manual on
+        self.create_input('mgmt.cfg',
+                          ['set ip protocol bootp\n',
+                           'set ip address 192.0.2.11\n'])
+        ret = self.script_env.run(self.script, 'mgmt.cfg', '--log-level=WARN',
+                                  expect_stderr=True, expect_error=True)
+        self.verify_output('mgmt.xsf',
+                           ['configure vlan Default ipaddress 192.0.2.11 '
+                            '255.255.255.0\n'],
+                           self.jumbo_ignore + self.ignore_stpd +
+                           self.ignore_web + self.ignore_idle)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr',
+                           ['ERROR: Management IPv4 address configured'
+                            ' statically, but dynamic IPv4 address assignment'
+                            ' active, using static IPv4 address only\n',
+                            'WARN: Management IP protocol "bootp" omitted from'
+                            ' translation\n',
+                            ],
+                           [])
+
+    def test_case_209(self):  # static management address, DHCP default on
+        self.create_input('mgmt.cfg',
+                          ['set ip address 192.0.2.11\n'])
+        ret = self.script_env.run(self.script, 'mgmt.cfg', '--log-level=WARN',
+                                  expect_stderr=True, expect_error=True)
+        self.verify_output('mgmt.xsf',
+                           ['configure vlan Default ipaddress 192.0.2.11 '
+                            '255.255.255.0\n'],
+                           self.jumbo_ignore + self.ignore_stpd +
+                           self.ignore_web + self.ignore_idle)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr',
+                           ['WARN: Management IPv4 address configured'
+                            ' statically, but dynamic IPv4 address assignment'
+                            ' active, using static IPv4 address only\n',
+                            ],
+                           [])
+
+    def test_case_210(self):  # empty translation
+        self.create_input('eos_to_exos_defaults.cfg',
+                          self.eos_to_exos_defaults_conf)
+        self.script_env.run(self.script, 'eos_to_exos_defaults.cfg',
+                            '--log-level=WARN')
+        self.verify_output('eos_to_exos_defaults.xsf', [], [])
+
+    def test_case_211(self):  # check for WARN about ignored QoS no router mode
+        self.create_input(
+            'acl.cfg',
+            ['access-list 6 permit host 55.1.2.3 assign-queue 5\n',
+             'access-list 1 permit any assign-queue 2\n',
+             'access-list 100 permit udp host 61.102.3.2 61.112.0.0 0.0.0.255'
+             ' dscp ef\n',
+             'access-list 100 permit udp host 61.102.3.5 61.112.0.0 0.0.0.255'
+             ' dscp ef assign-queue 4\n',
+             'access-list 100 permit ip 61.114.6.7 0.0.0.255 host '
+             '61.114.114.114 tos 23 fa\n',
+             'access-list 100 permit tcp host 61.114.74.74 eq 17 any '
+             'precedence 7\n',
+             'access-list 100 permit udp host 61.114.43.33 eq 520 host '
+             '61.114.43.33 eq 520 assign-queue 5\n',
+             'access-list 100 permit udp host 61.114.43.33 eq 161 host '
+             '61.88.12.34 tos ff cb assign-queue 4\n',
+             'access-list 100 permit tcp any any established\n',
+             ])
+        ret = self.script_env.run(self.script, 'acl.cfg', '--log-level=WARN',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr', [
+            'WARN: Ignoring "assign-queue 5" in "access-list 6 permit host'
+            ' 55.1.2.3 assign-queue 5"\n',
+            'WARN: Ignoring "assign-queue 2" in "access-list 1 permit any '
+            'assign-queue 2"\n',
+            'WARN: Ignoring "dscp ef" in "access-list 100 permit udp host '
+            '61.102.3.2 61.112.0.0 0.0.0.255 dscp ef"\n',
+            'WARN: Ignoring "dscp ef assign-queue 4" in "access-list 100 '
+            'permit udp host 61.102.3.5 61.112.0.0 0.0.0.255 dscp ef '
+            'assign-queue 4"\n',
+            'WARN: Ignoring "tos 23 fa" in "access-list 100 permit ip '
+            '61.114.6.7 0.0.0.255 host 61.114.114.114 tos 23 fa"\n',
+            'WARN: Ignoring "precedence 7" in "access-list 100 permit tcp host'
+            ' 61.114.74.74 eq 17 any precedence 7"\n',
+            'WARN: Ignoring "assign-queue 5" in "access-list 100 permit udp '
+            'host 61.114.43.33 eq 520 host 61.114.43.33 eq 520 assign-queue 5'
+            '"\n',
+            'WARN: Ignoring "tos ff cb assign-queue 4" in "access-list 100 '
+            'permit udp host 61.114.43.33 eq 161 host 61.88.12.34 tos ff cb '
+            'assign-queue 4"\n',
+            'WARN: Ignoring "established" in "access-list 100 permit tcp any '
+            'any established"\n',
+            ], [])
+        self.assertEqual(ret.returncode, 0, "Wrong exit code")
+
+    def test_case_212(self):  # check for WARN about incomplete MSTI mapping
+        self.create_input(
+            'mstp.cfg',
+            ['set spantree mstcfgid cfgname HQ rev 1\n',
+             'set spantree msti sid 1 create\n',
+             'set spantree msti sid 2 create\n',
+             'set spantree mstmap 1,4,10,100,102,104,200,666,1000 sid 1\n',
+             'set spantree mstmap 20,101,103,105,300 sid 2\n',
+             'set spantree priority 0 1\n',
+             'set spantree priority 4096 2\n',
+             ])
+        ret = self.script_env.run(self.script, 'mstp.cfg', '--log-level=WARN',
+                                  expect_stderr=True)
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr', [
+            'WARN: EXOS can only map configured VLANs to MST instances, the '
+            'following VLANs have been omitted from MST instance 1: [4, 10, '
+            '100, 102, 104, 200, 666, 1000]\n',
+            'WARN: EXOS can only map configured VLANs to MST instances, the '
+            'following VLANs have been omitted from MST instance 2: [20, 101, '
+            '103, 105, 300]\n',
+            ], [])
+        self.assertEqual(ret.returncode, 0, "Wrong exit code")
+        self.verify_output('mstp.xsf',
+                           ['configure mstp region HQ\n',
+                            'configure mstp revision 1\n',
+                            'configure stpd s0 delete vlan Default ports '
+                            'all\n',
+                            'disable stpd s0 auto-bind vlan Default\n',
+                            'configure stpd s0 mode mstp cist\n',
+                            'enable stpd s0\n',
+                            'create stpd s1\n',
+                            'configure stpd s1 default-encapsulation dot1d\n',
+                            'configure stpd s1 mode mstp msti 1\n',
+                            'enable stpd s1 auto-bind vlan Default\n',
+                            'configure stpd s1 priority 0\n',
+                            'enable stpd s1\n',
+                            'create stpd s2\n',
+                            'configure stpd s2 default-encapsulation dot1d\n',
+                            'configure stpd s2 mode mstp msti 2\n',
+                            'configure stpd s2 priority 4096\n',
+                            'enable stpd s2\n'],
+                           self.jumbo_ignore + self.ignore_web +
+                           self.ignore_mgmt + self.ignore_idle)
 
 
 if __name__ == '__main__':

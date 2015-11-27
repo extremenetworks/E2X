@@ -62,208 +62,238 @@ class PatternReplacement:
 
 class Translator:
 
-    PATTERN_IPV4 = '\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}'
+    PATTERN_IPV4 = r'\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}'
 
     def __init__(self, pattern_replacements=None):
         if pattern_replacements:
             self.pattern_replacements = pattern_replacements
         else:
-            self.pattern_replacements = \
-                [PatternReplacement('show switch (\d+)',
-                                    r'show slot \1'),
-                 PatternReplacement('show switch',
-                                    r'show slot'),
-                 PatternReplacement('show (ip )?arp',
-                                    r'show iparp'),
-                 PatternReplacement('show ip arp vlan (\d+)',
-                                    r'show iparp vlan '
-                                    r'<NAME_OF_VLAN_WITH_TAG_\1>'),
-                 PatternReplacement('show ip route connected',
-                                    r'show iproute origin direct'),
-                 PatternReplacement('show ip route static',
-                                    r'show iproute origin static'),
-                 PatternReplacement('show ip route ospf',
-                                    r'show iproute origin ospf'),
-                 PatternReplacement('show ip route rip',
-                                    r'show iproute origin rip'),
-                 PatternReplacement('show ip route summary',
-                                    r'show iproute origin summary'),
-                 PatternReplacement('show ip route',
-                                    r'show iproute'),
-                 PatternReplacement('reset',
-                                    r'reboot'),
-                 PatternReplacement('reset (\d+)',
-                                    r'reboot slot \1'),
-                 PatternReplacement('set telnet (enable|disable)'
-                                    ' (all|inbound)',
-                                    r'\1 telnet'),
-                 PatternReplacement('set telnet (enable|disable) outbound',
-                                    r'% Outbound telnet cannot be disabled'
-                                    ' on EXOS (always enabled)'),
-                 PatternReplacement('show telnet',
-                                    r'show management | include Telnet'),
-                 PatternReplacement('set ssh (enable|disable)d',
-                                    r'\1 ssh2'),
-                 PatternReplacement('show ssh',
-                                    r'show management | include SSH'),
-                 PatternReplacement('show webview',
-                                    r'show management | include Web\n'
-                                    'show ssl'),
-                 PatternReplacement('show ssl',
-                                    r'show ssl'),
-                 PatternReplacement('set ip address '
-                                    '(' + Translator.PATTERN_IPV4 +
-                                    ') mask (' + Translator.PATTERN_IPV4 +
-                                    ') gateway (' + Translator.PATTERN_IPV4 +
-                                    ')',
-                                    r'configure vlan Default ipaddress \1 \2\n'
-                                    r'configure iproute add default \3'),
-                 PatternReplacement('set ip address '
-                                    '(' + Translator.PATTERN_IPV4 +
-                                    ') mask (' + Translator.PATTERN_IPV4 +
-                                    ')',
-                                    r'configure vlan Default ipaddress \1 \2'),
-                 PatternReplacement('set ip address '
-                                    '(' + Translator.PATTERN_IPV4 + ')',
-                                    r'configure vlan Default ipaddress \1'),
-                 PatternReplacement('show ip address',
-                                    r'show vlan'),
-                 PatternReplacement('show config',
-                                    r'show configuration'),
-                 PatternReplacement('show config (\S+)',
-                                    r'show configuration \1',
-                                    'Section names may differ'),
-                 PatternReplacement('save config',
-                                    r'save configuration'),
-                 PatternReplacement('set logging server 1 ip-addr (' +
-                                    Translator.PATTERN_IPV4 +
-                                    ') severity 6 state enable',
-                                    r'configure log target syslog \1 severity '
-                                    r'notice only'),
-                 PatternReplacement('show logging server',
-                                    r'show log configuration target syslog'),
-                 PatternReplacement('set port vlan \S+ (\d+) modify-egress',
-                                    r'configure vlan <VLAN_WITH_TAG_\1> add'
-                                    ' ports <PORTSTRING>',
-                                    'Untagged ingress and egress are always '
-                                    'the same on EXOS'),
-                 PatternReplacement('show port vlan( \S+)?',
-                                    r'show ports [<PORTSTRING>] information'
-                                    ' detail | include "(^Port|'
-                                    '(Internal|802.1Q) Tag)"'),
-                 PatternReplacement('show vlan (static )?(\d+)',
-                                    r'show vlan tag \2'),
-                 PatternReplacement('show vlan( static)?',
-                                    r'show vlan detail'),
-                 PatternReplacement('show port status( \S+)?',
-                                    r'show ports [<PORTSTRING>] no-refresh'),
-                 PatternReplacement('show port negotiation( \S+)?',
-                                    r'show ports [<PORTSTRING>] configuration'
-                                    ' no-refresh'),
-                 PatternReplacement('set port broadcast \S+ (\d+)',
-                                    r'configure ports <PORTSTRING> rate-limit'
-                                    r' flood broadcast \1'),
-                 PatternReplacement('show port broadcast( \S+)?',
-                                    r'show ports [<PORTSTRING>] rate-limit'
-                                    ' flood no-refresh'),
-                 PatternReplacement('set port trap \S+ (enable|disable)',
-                                    r'\1 snmp traps port-up-down ports'
-                                    ' <PORTSTRING>'),
-                 PatternReplacement('show port trap( \S+)?',
-                                    r'show ports [<PORTSTRING>] information'
-                                    ' detail | include (^Port|Link up/down)'),
-                 PatternReplacement('show radius',
-                                    r'show radius'),
-                 PatternReplacement('show banner motd',
-                                    r'show banner after-login'),
-                 PatternReplacement('show banner login',
-                                    r'show banner before-login'),
-                 PatternReplacement('copy tftp://(' + Translator.PATTERN_IPV4 +
-                                    ')/([-\w./]+) system:image',
-                                    r'download image \1 \2 vr VR-Default '
-                                    r'{primary|secondary}'),
-                 PatternReplacement('dir', 'show version image\nls'),
-                 PatternReplacement('set boot system [-\w./]+',
-                                    'use image partition {primary|secondary}'),
-                 PatternReplacement('show switch',
-                                    r'show switch |include "Slot|Current '
-                                    r'St|System T|.* ver"'),
-                 PatternReplacement('set logout ([1-9]\d*)',
-                                    r'configure idletimeout \1\nenable'
-                                    ' idletimeout'),
-                 PatternReplacement('set logout 0',
-                                    r'disable idletimeout'),
-                 PatternReplacement('show logout',
-                                    r'show management | include "CLI idle"'),
-                 PatternReplacement('set system login (\w+) super-user enable'
-                                    ' password (\w+)',
-                                    r'create account admin \1 \2',
-                                    'Password is set interactively'),
-                 PatternReplacement('set system login (\w+) super-user enable',
-                                    r'create account admin \1'),
-                 PatternReplacement('set system login (\w+) super-user disable'
-                                    r' password (\w+)',
-                                    r'create account admin \1 \2\n'
-                                    r'disable account \1',
-                                    'Password is set'),
-                 PatternReplacement('set system login (\w+) super-user'
-                                    ' disable',
-                                    r'create account admin \1\n'
-                                    r'disable account \1'),
-                 PatternReplacement('show system login',
-                                    r'show accounts'),
-                 PatternReplacement('clear config',
-                                    r'unconfigure switch',
-                                    'Deletes all ip-addresses except address'
-                                    ' of management port'),
-                 PatternReplacement('clear config all',
-                                    r'unconfigure switch all',
-                                    'All ip-addresses are deleted'),
-                 PatternReplacement('clear ip address',
-                                    r'unconfigure vlan Default ipaddress'),
-                 PatternReplacement('set ip protocol dhcp',
-                                    r'enable dhcp vlan Default'),
-                 PatternReplacement('show sntp',
-                                    'show sntp-client'),
-                 PatternReplacement('show time',
-                                    'show switch | include "Current Time"'),
-                 PatternReplacement('show summertime',
-                                    'show switch | include "Timezone"'),
-                 PatternReplacement('show version',
-                                    'show version\n'
-                                    'show switch | include "System Type:"'),
-                 PatternReplacement('show support',
-                                    'show tech'),
-                 PatternReplacement('set sntp server ' + '(' +
-                                    Translator.PATTERN_IPV4 + ')'
-                                    r'( precedence (\d\d?))?',
-                                    'configure sntp-client '
-                                    r'{primary|secondary} \1 vr VR-Default'),
-                 PatternReplacement('set sntp client disable',
-                                    'disable sntp-client'),
-                 PatternReplacement('set sntp client broadcast',
-                                    'enable sntp-client',
-                                    'EXOS uses unicast mode if an SNTP server'
-                                    ' is configured'),
-                 PatternReplacement('set sntp client unicast',
-                                    'enable sntp-client',
-                                    'EXOS uses broadcast mode if no SNTP'
-                                    ' server is configured'),
-                 PatternReplacement('set port (enable|disable) \S+',
-                                    r'\1 ports <PORTSTRING>'),
-                 PatternReplacement('show port egress( \S+)?',
-                                    'show ports [<PORTSTRING>] information '
-                                    'detail | include (^Port:|Tag =)'),
-                 PatternReplacement('ip route 0.0.0.0 0.0.0.0 (' +
-                                    Translator.PATTERN_IPV4 + ')',
-                                    r'configure iproute add default \1 '
-                                    'vr VR-Default'),
-                 PatternReplacement('ip route (' + Translator.PATTERN_IPV4 +
-                                    ') (' + Translator.PATTERN_IPV4 + ') (' +
-                                    Translator.PATTERN_IPV4 + ')',
-                                    r'configure iproute add \1 \2 \3 '
-                                    'vr VR-Default'),
-                 ]
+            pat_repl_lst = (
+                (r'show switch (\d+)', r'show slot \1', ''),
+                ('show switch', 'show stacking\nshow slot', ''),
+                ('show (ip )?arp', r'show iparp', ''),
+                ('show ip arp vlan (\d+)',
+                 r'show iparp vlan <NAME_OF_VLAN_WITH_TAG_\1>',
+                 ''),
+                ('show ip route connected', 'show iproute origin direct', ''),
+                ('show ip route static', 'show iproute origin static', ''),
+                ('show ip route ospf', 'show iproute origin ospf', ''),
+                ('show ip route rip', 'show iproute origin rip', ''),
+                ('show ip route summary', 'show iproute origin summary', ''),
+                ('show ip route', 'show iproute', ''),
+                (r'show ip interface vlan *(\d+)',
+                 r'show ipconfig vlan <VLAN_NAME_WITH_TAG_\1>',
+                 ''),
+                (r'show ip interface loopback *(\d+)',
+                 r'show ipconfig vlan <LOOPBACK_\1_VLAN_NAME>',
+                 ''),
+                ('show ip interface', 'show ipconfig', ''),
+                ('reset', 'reboot', ''),
+                (r'reset (\d+)', r'reboot slot \1', ''),
+                ('set telnet (enable|disable) (all|inbound)',
+                 r'\1 telnet',
+                 ''),
+                ('set telnet (enable|disable) outbound',
+                 '',
+                 'Outbound telnet cannot be disabled on EXOS'
+                 ' (always enabled)'),
+                ('show telnet', 'show management | include Telnet', ''),
+                ('set ssh (enable|disable)d', r'\1 ssh2', ''),
+                ('show ssh', r'show management | include SSH', ''),
+                ('show webview',
+                 'show management | include Web\nshow ssl',
+                 ''),
+                ('show ssl', 'show ssl', ''),
+                ('set ip address (' + Translator.PATTERN_IPV4 + ') mask (' +
+                 Translator.PATTERN_IPV4 + ') gateway (' +
+                 Translator.PATTERN_IPV4 + ')',
+                 r'configure vlan Default ipaddress \1 \2'
+                 '\nconfigure iproute add default \\3',
+                 ''),
+                ('set ip address (' + Translator.PATTERN_IPV4 + ') mask (' +
+                 Translator.PATTERN_IPV4 + ')',
+                 r'configure vlan Default ipaddress \1 \2',
+                 ''),
+                ('set ip address (' + Translator.PATTERN_IPV4 + ')',
+                 r'configure vlan Default ipaddress \1',
+                 ''),
+                ('show ip address', 'show vlan', ''),
+                ('show config all', 'show configuration detail', ''),
+                (r'show config all (\S+)',
+                 r'show configuration detail \1',
+                 'Section names may differ'),
+                ('show config', 'show configuration', ''),
+                ('show config (\S+)',
+                 r'show configuration \1',
+                 'Section names may differ'),
+                ('save config', r'save configuration', ''),
+                ('set logging server 1 ip-addr (' + Translator.PATTERN_IPV4 +
+                 ') severity 6 state enable',
+                 r'configure log target syslog \1 severity notice only',
+                 ''),
+                ('show logging server',
+                 'show log configuration target syslog',
+                 ''),
+                (r'set port vlan \S+ (\d+)( modify-egress)?',
+                 r'configure vlan <VLAN_WITH_TAG_\1> add ports <PORTSTRING>',
+                 'Untagged ingress and egress are always the same on EXOS'),
+                ('show port vlan( \S+)?',
+                 'show ports [<PORTSTRING>] information detail | include'
+                 ' "(^Port|(Internal|802.1Q) Tag)"',
+                 ''),
+                ('show vlan portinfo( port \S+)',
+                 'show ports [<PORTSTRING>] information detail | include'
+                 ' "(^Port|' '(Internal|802.1Q) Tag)"',
+                 ''),
+                ('show vlan portinfo',
+                 'show ports information detail | include'
+                 ' "(^Port|(Internal|802.1Q) Tag)"',
+                 ''),
+                (r'show vlan (static )?(\d+)', r'show vlan tag \2', ''),
+                ('show vlan( static)?', 'show vlan detail', ''),
+                (r'show port status( \S+)?',
+                 'show ports [<PORTSTRING>] no-refresh',
+                 ''),
+                (r'show port negotiation( \S+)?',
+                 'show ports [<PORTSTRING>] configuration no-refresh',
+                 ''),
+                (r'set port broadcast \S+ (\d+)',
+                 'configure ports <PORTSTRING> rate-limit flood'
+                 r' broadcast \1',
+                 ''),
+                (r'show port broadcast( \S+)?',
+                 'show ports [<PORTSTRING>] rate-limit flood no-refresh',
+                 ''),
+                (r'set port trap \S+ (enable|disable)',
+                 r'\1 snmp traps port-up-down ports <PORTSTRING>',
+                 ''),
+                (r'show port trap( \S+)?',
+                 'show ports [<PORTSTRING>] information detail |'
+                 ' include (^Port|Link up/down)',
+                 ''),
+                ('show radius', 'show radius', ''),
+                ('show banner motd', 'show banner after-login', ''),
+                ('show banner login', 'show banner before-login', ''),
+                ('copy tftp://(' + Translator.PATTERN_IPV4 + r')/([-\w./]+)'
+                 ' system:image',
+                 r'download image \1 \2 vr VR-Default {primary|secondary}',
+                 ''),
+                ('dir', 'show version image\nls', ''),
+                (r'set boot system [-\w./]+',
+                 'use image partition {primary|secondary}',
+                 ''),
+                (r'set logout ([1-9]\d*)',
+                 'configure idletimeout \\1\nenable idletimeout',
+                 ''),
+                ('set logout 0', 'disable idletimeout', ''),
+                ('show logout', 'show management | include "CLI idle"', ''),
+                (r'set system login (\w+) (?:super-user|read-write) enable'
+                 r' password (\w+)',
+                 r'create account admin \1 \2',
+                 ''),
+                (r'set system login (\w+) (?:super-user|read-write) enable',
+                 r'create account admin \1',
+                 'Password is set interactively'),
+                (r'set system login (\w+) (?:super-user|read-write) disable'
+                 r' password (\w+)',
+                 'create account admin \\1 \\2\ndisable account \\1',
+                 ''),
+                (r'set system login (\w+) (?:super-user|read-write) disable',
+                 'create account admin \\1\ndisable account \\1',
+                 'Password is set interactively'),
+                (r'set system login (\w+) read-only enable'
+                 r' password (\w+)',
+                 r'create account user \1 \2',
+                 ''),
+                (r'set system login (\w+) read-only enable',
+                 r'create account user \1',
+                 'Password is set interactively'),
+                (r'set system login (\w+) read-only disable'
+                 r' password (\w+)',
+                 'create account user \\1 \\2\ndisable account \\1',
+                 ''),
+                (r'set system login (\w+) read-only disable',
+                 'create account user \\1\ndisable account \\1',
+                 'Password is set interactively'),
+                (r'clear system login (\S+)', r'delete account \1', ''),
+                ('show system login', 'show accounts', ''),
+                ('clear config',
+                 'unconfigure switch',
+                 'Deletes all ip-addresses except address of management port'),
+                ('clear config all',
+                 'unconfigure switch all',
+                 'All ip-addresses are deleted'),
+                ('clear ip address', 'unconfigure vlan Default ipaddress', ''),
+                ('set ip protocol dhcp', 'enable dhcp vlan Default', ''),
+                ('show sntp', 'show sntp-client', ''),
+                ('show time', 'show switch | include "Current Time"', ''),
+                ('show summertime', 'show switch | include "DST"', ''),
+                ('show version',
+                 'show version\nshow switch | include "System Type:"',
+                 ''),
+                ('show support', 'show tech-support', ''),
+                ('set sntp server ' + '(' + Translator.PATTERN_IPV4 + ')'
+                 r'( precedence (\d\d?))?',
+                 'configure sntp-client {primary|secondary}'
+                 r' \1 vr VR-Default',
+                 ''),
+                ('set sntp client disable', 'disable sntp-client', ''),
+                ('set sntp client broadcast',
+                 'enable sntp-client',
+                 'EXOS uses unicast mode if an SNTP server is configured'),
+                ('set sntp client unicast',
+                 'enable sntp-client',
+                 'EXOS uses broadcast mode if no SNTP server is configured'),
+                (r'set port (enable|disable) \S+',
+                 r'\1 ports <PORTSTRING>',
+                 ''),
+                ('show port egress( \S+)?',
+                 'show ports [<PORTSTRING>] information detail |'
+                 ' include (^Port:|Tag =)',
+                 ''),
+                ('ip route 0.0.0.0 0.0.0.0 (' + Translator.PATTERN_IPV4 + ')',
+                 r'configure iproute add default \1 vr VR-Default',
+                 ''),
+                ('ip route (' + Translator.PATTERN_IPV4 + ') (' +
+                 Translator.PATTERN_IPV4 + ') (' + Translator.PATTERN_IPV4 +
+                 ')',
+                 r'configure iproute add \1 \2 \3 vr VR-Default',
+                 ''),
+                (r'set time (\d?\d)/(\d?\d)/(\d\d\d\d) '
+                 r'(\d?\d):(\d?\d):(\d?\d)',
+                 r'configure time \1 \2 \3 \4 \5 \6',
+                 ''),
+                (r'set time (\d?\d):(\d?\d):(\d?\d)',
+                 r'configure time <MONTH> <DAY> <YEAR> \1 \2 \3',
+                 ''),
+                ('set time (\d?\d)/(\d?\d)/(\d\d\d\d)',
+                 r'configure time \1 \2 \3 <HOUR> <MINUTE> <SECOND>',
+                 ''),
+                ('set time',
+                 'configure time <MONTH> <DAY> <YEAR> <HOUR> <MINUTE>'
+                 ' <SECOND>',
+                 ''),
+                (r'show mac address (\S+)', r'show fdb \1', ''),
+                (r'show mac port (\S+)', 'show fdb ports <PORTSTRING>', ''),
+                (r'show mac fid (\S+)',
+                 r'show fdb vlan <VLAN_WITH_TAG_\1>',
+                 ''),
+                ('show mac', 'show fdb', ''),
+                ('show spantree stats active',
+                 'show stpd <STPD> ports | include " e(R|D|A|B|M)"',
+                 ''),
+                ('show spantree stats', 'show stpd detail', ''),
+                ('show neighbors\s+\S+',
+                 'show edp ports <PORTSTRING>\nshow lldp ports <PORTSTRING>'
+                 ' neighbors\nshow cdp neighbor | include "Port[0-9]+"',
+                 ''),
+                ('show neighbors',
+                 'show edp ports all\nshow lldp neighbors\nshow cdp neighbor',
+                 ''),
+                (r'set\s+password\s+(\S+)', r'configure account \1', ''),
+                )
+            self.pattern_replacements = list(PatternReplacement(p, r, h) for
+                                             p, r, h in pat_repl_lst)
 
     def convert_line(self, pattern, replacement, line):
         t, n = re.subn(pattern + '\s*$', replacement, line,
@@ -282,7 +312,7 @@ class Translator:
             return transl
         for pr in self.pattern_replacements:
             tl = self.convert_line(pr.pattern, pr.replacement, configline)
-            if tl:
+            if tl is not None:
                 transl.set_hint(pr.hint)
                 transl.set_xos(tl)
                 break

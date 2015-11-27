@@ -108,6 +108,7 @@ class EosSwitch(Switch.Switch):
         self._stps.append(stp)
         for p in self._ports + self._lags:
             self._apply_default_common_port_settings(p)
+        # switch management
         self._banner_login_ack = (True, reason)
         self._telnet_inbound = (True, reason)
         self._telnet_outbound = (True, reason)
@@ -120,6 +121,23 @@ class EosSwitch(Switch.Switch):
         self._idle_timer = (5, reason)
         self._sntp_client = ('disable', reason)
         self._ipv4_routing = (True, reason)
+        self._radius_mgmt_acc_enabled = (False, reason)
+        self._tacacs_enabled = (False, reason)
+        admin = self.get_user_account('admin')
+        admin.set_is_default(True)
+        admin.set_name('admin')
+        admin.set_type('super-user')
+        admin.set_state('enabled')
+        rw = self.get_user_account('rw')
+        rw.set_is_default(True)
+        rw.set_name('rw')
+        rw.set_type('read-write')
+        rw.set_state('enabled')
+        ro = self.get_user_account('ro')
+        ro.set_is_default(True)
+        ro.set_name('ro')
+        ro.set_type('read-only')
+        ro.set_state('enabled')
         super().apply_default_settings()
 
     def _apply_default_port_settings(self, port):
@@ -230,7 +248,8 @@ class EosSwitch(Switch.Switch):
                     'dhcp', 'none', 'boot', 'state', 'descr', 'facility',
                     'local0', 'local1', 'local2', 'local3', 'local4', 'local5',
                     'local6', 'local7', 'ip-addr', 'port', 'severity',
-                    'unicast', 'route',
+                    'unicast', 'route', 'first', 'second', 'third', 'fourth',
+                    'last',
                     }
         comments = self.get_cmd().get_comment()
         return (Utils.words_to_lower(config, keywords, comments), [])

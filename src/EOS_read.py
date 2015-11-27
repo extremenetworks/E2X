@@ -64,6 +64,13 @@ EosSetIpProtocolCommand implements 'set ip protocol'.
 EosSetHostCommand implements 'set host'.
 EosSetLoggingCommand implements 'set logging'.
 EosSetSntpCommand implements 'set sntp'.
+EosSetSummertimeCommand implements 'set summertime'.
+EosSetRadiusCommand implements 'set radius'.
+EosSetRadiusInterfaceCommand implements 'set radius interface'.
+EosSetTacacsCommand implements 'set tacacs'.
+EosSetTacacsInterfaceCommand implements 'set tacacs interface'.
+EosSetSnmpCommand implements 'set snmp'.
+EosClearSystemCommand implements 'clear system'.
 
 All of the above classes should be considered private, used via calling
 Switch.configure().
@@ -520,17 +527,20 @@ class EosSetVlanCommand(Switch.CmdInterpreter):
             try:
                 tag = int(arg[:space])
             except:
-                return 'ERROR: VLAN tag must be an integer (set vlan name)'
+                return ('ERROR: VLAN tag must be an integer (set vlan name ' +
+                        arg + ')')
             name = arg[space + 1:].strip('"')
         else:
             try:
                 tag = int(arg.rstrip())
             except:
-                return 'ERROR: VLAN tag must be an integer (set vlan name)'
+                return ('ERROR: VLAN tag must be an integer (set vlan name ' +
+                        arg + ')')
             name = ''
         v = self._switch.get_vlan(tag=tag)
         if not v:
-            return 'ERROR: VLAN ' + str(tag) + ' not found (set vlan name)'
+            return ('ERROR: VLAN ' + str(tag) + ' not found (set vlan name ' +
+                    arg + ')')
         v.set_name(name)
         return ''
 
@@ -626,6 +636,30 @@ class EosClearPortLacpCommand(Switch.CmdInterpreter):
             if r != f[2]:
                 return ('ERROR: could not apply "clear port lacp port ' + arg +
                         '"')
+        return ''
+
+
+class EosClearSystemCommand(Switch.CmdInterpreter):
+
+    """Commands starting with 'clear'."""
+
+    def __init__(self, switch):
+        super().__init__()
+        self._switch = switch
+
+    def default(self, line):
+        return 'NOTICE: Ignoring unknown command "clear system ' + line + '"'
+
+    def do_login(self, line):
+        if not line:
+            return 'ERROR: "clear system login" needs a login name to clear'
+        if len(line.split()) != 1:
+            return ('NOTICE: Ignoring unknown command "clear system login ' +
+                    line + '"')
+        ret = self._switch.del_user_account(line)
+        if ret is None:
+            return ('WARN: Could not delete non-existing user account "' +
+                    line + '"')
         return ''
 
 
@@ -875,11 +909,12 @@ class EosSetPortCommand(Switch.CmdInterpreter):
         portlist = self._switch.get_ports_by_name(portstring)
         if not portlist:
             ret += 'ERROR: Port ' + portstring
-            ret += ' not found (set port vlan)'
+            ret += ' not found (set port vlan ' + arg + ')'
             return ret
         v = self._switch.get_vlan(tag=int(tag))
         if not v:
-            ret += 'ERROR: VLAN ' + tag + ' not found (set port vlan)'
+            ret += ('ERROR: VLAN ' + tag + ' not found (set port vlan ' + arg +
+                    ')')
             return ret
         for p in portlist:
             for tmp_v in self._switch.get_all_vlans():
@@ -1031,12 +1066,10 @@ class EosIpCommand(Switch.CmdInterpreter):
             return ('ERROR: "ip access-group" inside unknown interface "' +
                     str(interface) + '" [interface parse error]')
         if intf[0] == 'loopback':
-            return ('ERROR: ACLs cannot be bound to a Loopback Interface (' +
+            return ('ERROR: ACLs cannot be bound to a loopback interface (' +
                     interface + ').')
-        if intf[0] != 'vlan':
-            return ('ERROR: "ip access-group" inside unknown interface "' +
-                    str(interface) + '"')
-        if not (0 < intf[1] < 4096):
+        # intf is a VLAN, so check it
+        if not VLAN.is_valid_tag(intf[1]):
             return ('ERROR: Illegal VLAN ID "' + str(intf[1]) + '" (' +
                     interface + ')')
         vlan = self._switch.get_vlan(tag=intf[1])
@@ -1077,11 +1110,9 @@ class EosIpCommand(Switch.CmdInterpreter):
                     str(interface) + '" [interface parse error]')
         if intf[0] == 'loopback':
             return ('ERROR: DHCP helper addresses cannot be added to a '
-                    'Loopback Interface (' + interface + ').')
-        if intf[0] != 'vlan':
-            return ('ERROR: "ip helper-address" inside unknown interface "' +
-                    str(interface) + '"')
-        if not (0 < intf[1] < 4096):
+                    'loopback interface (' + interface + ').')
+        # interface is of type vlan, check it
+        if not VLAN.is_valid_tag(intf[1]):
             return ('ERROR: Illegal VLAN ID "' + str(intf[1]) + '" (' +
                     interface + ')')
         vlan = self._switch.get_vlan(tag=intf[1])
@@ -1104,21 +1135,21 @@ class EosIpCommand(Switch.CmdInterpreter):
         return True
 
     def do_address(self, line):
-        warn = ''
         if not line:
             return 'ERROR: "ip address" needs an argument'
         if not self._state:
             return 'ERROR: "ip address" outside router interface'
         # check IP address format
-        m = re.match(r'(\d+\.\d+\.\d+\.\d+) +(\d+\.\d+\.\d+\.\d+)', line)
+        m = re.fullmatch(r'(\d+\.\d+\.\d+\.\d+) +(\d+\.\d+\.\d+\.\d+)'
+                         r'(\s+secondary)?', line.strip())
         if not m:
             return ('NOTICE: Ignoring unknown command "ip address ' + line +
                     '"')
-        ip, mask = m.group(1), m.group(2)
+        ip, mask, secondary = m.group(1), m.group(2), m.group(3)
         if (ip is None or mask is None or not self._is_valid_ip_address(ip) or
                 not self._is_valid_ip_address(mask)):
             return ('NOTICE: Ignoring unknown command "ip address ' + line +
-                    '"')
+                    '" (invalid IPv4 address)')
         # check for valid interface
         interface = self._state[-1]
         intf = _parse_interface(interface)
@@ -1134,12 +1165,22 @@ class EosIpCommand(Switch.CmdInterpreter):
                         '" (' + interface + ')')
             ifhandle = self._switch.get_loopback(ifnumber)
         elif iftype == 'vlan':
-            if not (0 < ifnumber < 4096):
+            if not VLAN.is_valid_tag(ifnumber):
                 return ('ERROR: Illegal VLAN ID "' + str(ifnumber) + '" (' +
                         interface + ')')
             ifhandle = self._switch.get_vlan(tag=ifnumber)
-        ifhandle.add_ipv4_address(ip, mask)
-        return warn
+        if not ifhandle:
+            return ('ERROR: Interface "' + str(interface) + '" not defined for'
+                                                            ' switch')
+        if secondary:
+            ifhandle.add_ipv4_address(ip, mask)
+        else:
+            ret = ifhandle.change_ipv4_address(ip, mask)
+            if ret is False:
+                return ('ERROR: Cannot change primary interface IP for'
+                        ' interface "' + str(interface) + '" with secondary'
+                        ' IP address(es) (ip address ' + line + ')')
+        return ''
 
     def do_routing(self, line):
         if line:
@@ -1154,8 +1195,8 @@ class EosIpCommand(Switch.CmdInterpreter):
         if not self._state or 'configure' not in self._state:
             warn = 'INFO: "ip route" command outside router config mode'
         _IP_PAT = r'(\d+\.\d+\.\d+\.\d+)'
-        m = re.match('^' + _IP_PAT + ' +' + _IP_PAT + ' +' + _IP_PAT + '$',
-                     line.strip())
+        m = re.fullmatch(_IP_PAT + ' +' + _IP_PAT + ' +' + _IP_PAT,
+                         line.strip())
         if not m:
             return 'NOTICE: Ignoring unknown command "ip route ' + line + '"'
         prefix, mask, gateway = m.group(1), m.group(2), m.group(3)
@@ -1163,7 +1204,9 @@ class EosIpCommand(Switch.CmdInterpreter):
                 not self._is_valid_ip_address(prefix) or
                 not self._is_valid_ip_address(mask) or
                 not self._is_valid_ip_address(gateway)):
-            return 'NOTICE: Ignoring unknown command "ip route ' + line + '"'
+            return 'NOTICE: Ignoring unknown command "ip ' \
+                   'route ' + line + '" (invalid IPv4 address)'
+
         self._switch.add_ipv4_static_route((prefix, mask, gateway))
         return warn
 
@@ -1206,6 +1249,37 @@ class EosSetSystemCommand(Switch.CmdInterpreter):
         self._switch.set_snmp_sys_location(arg.strip('"'), 'config')
         return err
 
+    def do_login(self, arg):
+        warn = ''
+        if not arg:
+            return 'ERROR: "set system login" needs arguments'
+        m = re.fullmatch(r'(\S+)\s+((?:super-user)|(?:read-write)|'
+                         r'(?:read-only))\s+((?:enable)|(?:disable))'
+                         r'(?:\s+password\s+(\S+))?', arg)
+        if not m:
+            return ('NOTICE: Ignoring unknown command "set system login ' +
+                    arg + '"')
+        a_name = m.group(1)
+        a_type = m.group(2)
+        a_state = m.group(3)
+        a_pass = m.group(4)
+        account = self._switch.get_user_account(a_name)
+        if account is None:
+            return ('ERROR: Could not configure user account "' + a_name + '"'
+                    ' (set system login ' + arg + ')')
+        if account.get_is_default() is None:
+            account.set_is_default(False)
+        account.set_name(a_name)
+        account.set_type(a_type)
+        account.set_state(a_state)
+        if a_pass:
+            if re.fullmatch(r':[0123456789abcdefABCDEF]{82}:', a_pass):
+                warn = ('WARN: Cannot convert encrypted password for user'
+                        ' account "' + a_name + '"')
+            else:
+                account.set_password(a_pass)
+        return warn
+
 
 class EosSetBannerCommand(Switch.CmdInterpreter):
 
@@ -1222,14 +1296,16 @@ class EosSetBannerCommand(Switch.CmdInterpreter):
         if not arg:
             return 'ERROR: "set banner login" needs an argument'
         err = self._check_quoting(arg)
-        self._switch.set_banner_login(arg.strip('"'), 'config')
+        banner = arg.strip('"').replace('\\t', '\t').replace('\\n', '\n')
+        self._switch.set_banner_login(banner, 'config')
         return err
 
     def do_motd(self, arg):
         if not arg:
             return 'ERROR: "set banner motd" needs an argument'
         err = self._check_quoting(arg)
-        self._switch.set_banner_motd(arg.strip('"'), 'config')
+        banner = arg.strip('"').replace('\\t', '\t').replace('\\n', '\n')
+        self._switch.set_banner_motd(banner, 'config')
         return err
 
 
@@ -1392,7 +1468,7 @@ class EosSetIpCommand(Switch.CmdInterpreter):
         ipre = r'(\d+\.\d+\.\d+\.\d+)'
         maskre = r'(?:\s+mask\s+' + ipre + ')?'
         gwre = r'(?:\s+gateway\s+' + ipre + ')?'
-        m = re.match(ipre + maskre + gwre, line)
+        m = re.fullmatch(ipre + maskre + gwre, line)
         if not m:
             return ('NOTICE: Ignoring unknown command "set ip address ' +
                     line + '"')
@@ -1700,6 +1776,333 @@ class EosSetSntpCommand(Switch.CmdInterpreter):
         return ''
 
 
+class EosSetSummertimeCommand(Switch.CmdInterpreter):
+
+    """Commands starting with 'set summertime'."""
+
+    def __init__(self, switch):
+        super().__init__()
+        self._switch = switch
+
+    def default(self, line):
+        return ('NOTICE: Ignoring unknown command "set summertime ' + line +
+                '"')
+
+    def do_enable(self, line):
+        if line:
+            self._switch.set_tz_dst_name(line.strip("'"), 'config')
+        self._switch.enable_tz_dst('config')
+        return ''
+
+    def do_disable(self, line):
+        if line:
+            self._switch.set_tz_dst_name(line.strip("'"), 'config')
+        self._switch.disable_tz_dst('config')
+        return ''
+
+    def do_recurring(self, line):
+        if not line:
+            return 'ERROR: "set summertime recurring" needs arguments'
+        date_re = (r'(first|second|third|fourth|last)\s+'
+                   '(monday|tuesday|wednesday|thursday|friday|saturday|sunday)'
+                   r'\s+(january|february|march|april|may|june|july|august|'
+                   r'september|october|november|december)\s+(\d+):(\d+)')
+        m = re.fullmatch(date_re + r'\s+' + date_re + r'\s+(\d+)', line,
+                         re.IGNORECASE)
+        if not m:
+            return ('NOTICE: Ignoring unknown command "set summertime ' +
+                    line + '"')
+        self._switch.set_tz_dst_start(m.group(1), m.group(2), m.group(3),
+                                      m.group(4), m.group(5), 'config')
+        self._switch.set_tz_dst_end(m.group(6), m.group(7), m.group(8),
+                                    m.group(9), m.group(10), 'config')
+        self._switch.set_tz_dst_off_min(m.group(11), 'config')
+        return ''
+
+
+class EosSetRadiusCommand(Switch.CmdInterpreter):
+
+    """Commands starting with 'set radius'."""
+
+    def __init__(self, switch):
+        super().__init__()
+        self._switch = switch
+        self._set_radius_interface = EosSetRadiusInterfaceCommand(switch)
+
+    def default(self, line):
+        return ('NOTICE: Ignoring unknown command "set radius ' + line +
+                '"')
+
+    def do_server(self, line):
+        warn = ''
+        if not line:
+            return 'ERROR: "set radius server" needs additional arguments'
+        RE = (r'(\d+)\s+(\d+\.\d+\.\d+\.\d+)\s+(\d+)(?:\s+(\S+))?'
+              r'(?:\s+realm\s+(management-access))')
+        m = re.fullmatch(RE, line)
+        if not m:
+            return ('NOTICE: Ignoring unknown command "set radius server ' +
+                    line + '"')
+        index = m.group(1)
+        ip = m.group(2)
+        port = m.group(3)
+        secret = m.group(4)
+        realm = m.group(5)
+        r = self._switch.get_radius_server(index)
+        r.set_ip(ip)
+        r.set_port(port)
+        if secret:
+            enc_secret = False
+            if len(secret) == 84 and secret[0] == secret[83] == ':':
+                is_hex = True
+                for c in secret[1:-1]:
+                    if c not in '0123456789ABCDEFabcdef':
+                        is_hex = False
+                        break
+                if is_hex:
+                    warn = ('WARN: Ignoring encrypted RADIUS secret (set'
+                            ' radius server ' + line + ')')
+                    enc_secret = True
+            if not enc_secret:
+                r.set_secret(secret)
+        r.set_realm(realm)
+        r.set_is_configured(True)
+        return warn
+
+    def do_disable(self, line):
+        if line:
+            return ('NOTICE: Ignoring unknown command "set radius disable' +
+                    line + '"')
+        self._switch.set_radius_mgmt_acc_enabled(False, 'config')
+        return ''
+
+    def do_enable(self, line):
+        if line:
+            return ('NOTICE: Ignoring unknown command "set radius enable' +
+                    line + '"')
+        self._switch.set_radius_mgmt_acc_enabled(True, 'config')
+        return ''
+
+    def do_interface(self, line):
+        return self._set_radius_interface.onecmd(line)
+
+
+class EosSetRadiusInterfaceCommand(Switch.CmdInterpreter):
+
+    """Commands starting with 'set radius interface'."""
+
+    def __init__(self, switch):
+        super().__init__()
+        self._switch = switch
+
+    def default(self, line):
+        return ('NOTICE: Ignoring unknown command "set radius interface ' +
+                line + '"')
+
+    def do_vlan(self, line):
+        if not line:
+            return 'ERROR: "set radius interface vlan" needs an argument'
+        if len(line.split()) > 1:
+            return ('NOTICE: Ignoring unknown command "set radius interface'
+                    ' vlan' + line + '"')
+        try:
+            number = int(line)
+        except:
+            return ('ERROR: interface number must be an integer (set radius'
+                    ' interface vlan ' + line + ')')
+        if not (0 < number < 4096):
+            return ('ERROR: interface number is no valid VLAN tag (set radius'
+                    ' interface vlan ' + line + ')')
+        self._switch.set_radius_interface(('vlan', number), 'config')
+        return ''
+
+    def do_loopback(self, line):
+        if not line:
+            return 'ERROR: "set radius interface loopback" needs an argument'
+        if len(line.split()) > 1:
+            return ('NOTICE: Ignoring unknown command "set radius interface'
+                    ' vlan' + line + '"')
+        try:
+            number = int(line)
+        except:
+            return ('ERROR: interface number must be an integer (set radius'
+                    ' interface loopback ' + line + ')')
+        w = ''
+        if not (0 <= number <= 8):
+            w = ('WARN: interface number "' + line + '" is not valid for'
+                 ' Loopback on C-Series (set radius interface loopback ' +
+                 line + ')')
+        self._switch.set_radius_interface(('loopback', number), 'config')
+        return w
+
+
+class EosSetTacacsCommand(Switch.CmdInterpreter):
+
+    """Commands starting with 'set tacacs'."""
+
+    def __init__(self, switch):
+        super().__init__()
+        self._switch = switch
+        self._set_tacacs_interface = EosSetTacacsInterfaceCommand(switch)
+
+    def default(self, line):
+        return ('NOTICE: Ignoring unknown command "set tacacs ' + line +
+                '"')
+
+    def do_server(self, line):
+        warn = ''
+        if not line:
+            return 'ERROR: "set tacacs server" needs additional arguments'
+        RE = r'(\d+)\s+(\d+\.\d+\.\d+\.\d+)\s+(\d+)(?:\s+(\S+))'
+        m = re.fullmatch(RE, line)
+        if not m:
+            return ('NOTICE: Ignoring unknown command "set tacacs server ' +
+                    line + '"')
+        index = m.group(1)
+        ip = m.group(2)
+        port = m.group(3)
+        secret = m.group(4)
+        t = self._switch.get_tacacs_server(index)
+        t.set_ip(ip)
+        t.set_port(port)
+        enc_secret = False
+        if (len(secret) == 84 and secret[0] == secret[83] == ':' or
+                len(secret) == 83 and secret[0] == ':'):
+            is_hex = True
+            for c in secret[1:84]:
+                if c not in '0123456789ABCDEFabcdef':
+                    is_hex = False
+                    break
+            if is_hex:
+                warn = ('WARN: Ignoring encrypted TACACS+ secret (set'
+                        ' tacacs server ' + line + ')')
+                enc_secret = True
+        if not enc_secret:
+            t.set_secret(secret)
+        t.set_is_configured(True)
+        return warn
+
+    def do_disable(self, line):
+        if line:
+            return ('NOTICE: Ignoring unknown command "set tacacs disable' +
+                    line + '"')
+        self._switch.set_tacacs_enabled(False, 'config')
+        return ''
+
+    def do_enable(self, line):
+        if line:
+            return ('NOTICE: Ignoring unknown command "set tacacs enable' +
+                    line + '"')
+        self._switch.set_tacacs_enabled(True, 'config')
+        return ''
+
+    def do_interface(self, line):
+        return self._set_tacacs_interface.onecmd(line)
+
+
+class EosSetTacacsInterfaceCommand(Switch.CmdInterpreter):
+
+    """Commands starting with 'set tacacs interface'."""
+
+    def __init__(self, switch):
+        super().__init__()
+        self._switch = switch
+
+    def default(self, line):
+        return ('NOTICE: Ignoring unknown command "set tacacs interface' +
+                line + '"')
+
+    def do_vlan(self, line):
+        if not line:
+            return 'ERROR: "set tacacs interface vlan" needs an argument'
+        if len(line.split()) > 1:
+            return ('NOTICE: Ignoring unknown command "set tacacs interface'
+                    ' vlan' + line + '"')
+        try:
+            number = int(line)
+        except:
+            return ('ERROR: interface number must be an integer (set tacacs'
+                    ' interface vlan ' + line + ')')
+        if not (0 < number < 4096):
+            return ('ERROR: interface number is no valid VLAN tag (set tacacs'
+                    ' interface vlan ' + line + ')')
+        self._switch.set_tacacs_interface(('vlan', number), 'config')
+        return ''
+
+    def do_loopback(self, line):
+        if not line:
+            return 'ERROR: "set tacacs interface loopback" needs an argument'
+        if len(line.split()) > 1:
+            return ('NOTICE: Ignoring unknown command "set tacacs interface'
+                    ' vlan' + line + '"')
+        try:
+            number = int(line)
+        except:
+            return ('ERROR: interface number must be an integer (set tacacs'
+                    ' interface loopback ' + line + ')')
+        w = ''
+        if not (0 <= number <= 8):
+            w = ('WARN: interface number "' + line + '" is not valid for'
+                 ' Loopback on C-Series (set tacacs interface loopback ' +
+                 line + ')')
+        self._switch.set_tacacs_interface(('loopback', number), 'config')
+        return w
+
+
+class EosSetSnmpCommand(Switch.CmdInterpreter):
+
+    """Commands starting with 'set snmp'."""
+
+    def __init__(self, switch):
+        super().__init__()
+        self._switch = switch
+
+    def default(self, line):
+        return ('NOTICE: Ignoring unknown command "set snmp ' + line + '"')
+
+    def do_targetparams(self, line):
+        if not line:
+            return 'ERROR: "set snmp targetparams" needs arguments'
+        m = re.fullmatch(r'"?(\S+)"?\s+user\s+(\S+)\s+security-model\s+'
+                         r'((?:v1)|(?:v2c))\s+message-processing\s+'
+                         r'((?:v1)|(?:v2c))',
+                         line)
+        if not m:
+            return ('NOTICE: Ignoring unknown command "set snmp'
+                    ' targetparams ' + line + '"')
+        p_name = m.group(1)
+        p_user = m.group(2)
+        p_sec = m.group(3)
+        p_msg = m.group(4)
+        target_params = self._switch.get_snmp_target_params(p_name)
+        if target_params is None:
+            return ('ERROR: could not configure SNMP target parameters "' +
+                    p_name + '" (set snmp targetparams ' + line + ')')
+        target_params.set_user(p_user)
+        target_params.set_security_model(p_sec)
+        target_params.set_message_processing(p_msg)
+        return ''
+
+    def do_targetaddr(self, line):
+        if not line:
+            return 'ERROR: "set snmp targetaddr" needs arguments'
+        m = re.fullmatch(r'"?(\S+)"?\s+(\d+\.\d+\.\d+\.\d+)\s+param\s+(\S+)',
+                         line)
+        if not m:
+            return ('NOTICE: Ignoring unknown command "set snmp'
+                    ' targetaddr ' + line + '"')
+        t_name = m.group(1)
+        t_ip = m.group(2)
+        t_param = m.group(3)
+        target_addr = self._switch.get_snmp_target_addr(t_name)
+        if target_addr is None:
+            return ('ERROR: could not configure SNMP target address "' +
+                    t_name + '" (set snmp targetaddr ' + line + ')')
+        target_addr.set_ip(t_ip)
+        target_addr.set_params(t_param)
+        return ''
+
+
 class EosClearCommand(Switch.CmdInterpreter):
 
     """Commands starting with 'clear'."""
@@ -1708,6 +2111,7 @@ class EosClearCommand(Switch.CmdInterpreter):
         super().__init__()
         self._clear_vlan = EosClearVlanCommand(switch)
         self._clear_port = EosClearPortCommand(switch)
+        self._clear_system = EosClearSystemCommand(switch)
 
     def default(self, line):
         return 'NOTICE: Ignoring unknown command "clear ' + line + '"'
@@ -1717,6 +2121,9 @@ class EosClearCommand(Switch.CmdInterpreter):
 
     def do_port(self, arg):
         return self._clear_port.onecmd(arg)
+
+    def do_system(self, arg):
+        return self._clear_system.onecmd(arg)
 
 
 class EosSetCommand(Switch.CmdInterpreter):
@@ -1739,6 +2146,10 @@ class EosSetCommand(Switch.CmdInterpreter):
         self._set_host = EosSetHostCommand(switch)
         self._set_logging = EosSetLoggingCommand(switch)
         self._set_sntp = EosSetSntpCommand(switch)
+        self._set_summertime = EosSetSummertimeCommand(switch)
+        self._set_radius = EosSetRadiusCommand(switch)
+        self._set_tacacs = EosSetTacacsCommand(switch)
+        self._set_snmp = EosSetSnmpCommand(switch)
         self._switch = switch
 
     def default(self, line):
@@ -1810,6 +2221,47 @@ class EosSetCommand(Switch.CmdInterpreter):
 
     def do_sntp(self, arg):
         return self._set_sntp.onecmd(arg)
+
+    def do_timezone(self, arg):
+        if not arg:
+            return 'ERROR: "set timezone" command needs a NAME argument'
+        m = re.fullmatch(r'(\S+)\s*([+-]?\d+)?\s*(\d+)?', arg)
+        if not m:
+            return ('NOTICE: Ignoring unknown command "set timezone ' + arg +
+                    '"')
+        tz_name, tz_off_h, tz_off_min = m.group(1), m.group(2), m.group(3)
+        tz_name = tz_name.strip("'")
+        if tz_off_h is not None:
+            try:
+                tz_off_h = int(tz_off_h)
+            except:
+                return ('ERROR: Timezone offset hours must be an integer (' +
+                        arg + ')')
+        else:
+            tz_off_h = 0
+        if tz_off_min is not None:
+            try:
+                tz_off_min = int(tz_off_min)
+            except:
+                return ('ERROR: Timezone offset minutes must be an integer (' +
+                        arg + ')')
+        else:
+            tz_off_min = 0
+        self._switch.set_tz_name(tz_name, 'config')
+        self._switch.set_tz_off_min(tz_off_h * 60 + tz_off_min, 'config')
+        return ''
+
+    def do_summertime(self, arg):
+        return self._set_summertime.onecmd(arg)
+
+    def do_radius(self, arg):
+        return self._set_radius.onecmd(arg)
+
+    def do_tacacs(self, arg):
+        return self._set_tacacs.onecmd(arg)
+
+    def do_snmp(self, arg):
+        return self._set_snmp.onecmd(arg)
 
 
 class EosCommand(Switch.CmdInterpreter):
@@ -1910,6 +2362,8 @@ class EosCommand(Switch.CmdInterpreter):
             return str(parse_err)
         surplus_params = new_acl.get_surplus_params()
         if surplus_params:
+            if warn:
+                warn += '\n'
             warn += 'WARN: Ignoring "' + surplus_params + '" in'
         number = new_acl.get_number()
 

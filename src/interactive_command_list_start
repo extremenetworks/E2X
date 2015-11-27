@@ -25,44 +25,10 @@
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
 
-import unittest
-import sys
-
-sys.path.extend(['../src'])
-
-import EOS_read
-import Switch
-
-from unittest.mock import Mock
-
-
-class EosClearPortCommand_test(unittest.TestCase):
-
-    @classmethod
-    def setUpClass(cls):
-        cls.mockSwitch = Mock(spec=Switch.Switch)
-
-    def setUp(self):
-        self.cmd = EOS_read.EosClearPortCommand(self.mockSwitch)
-
-    def test_do_lacp_fail(self):
-        confFragment = 'foo'
-        expected = 'NOTICE: Ignoring unknown command "clear port ' + \
-            confFragment + '"'
-
-        result = self.cmd.onecmd(confFragment)
-
-        self.assertEqual(expected, result)
-
-    def test_do_lacp(self):
-        confFragment = 'lacp'
-        self.cmd.do_lacp = Mock(return_value=None)
-
-        self.cmd.onecmd(confFragment)
-
-        self.assertEqual(1, self.cmd.do_lacp.call_count)
-
-if __name__ == '__main__':
-    unittest.main()
-
 # vim:filetype=python:expandtab:shiftwidth=4:tabstop=4
+
+# ***
+# *** --- FILE IS GENERATED, DO NOT EDIT ---
+# ***
+
+INT_MODE_CMD_LST = """

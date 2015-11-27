@@ -494,6 +494,33 @@ class XosConfigWriter(Switch.ConfigWriter):
                     err.append('ERROR: LAG consisting of one port ("' +
                                member_ports[0] + '") only, but'
                                ' single port LAG not enabled on source switch')
+                # port description (short)
+                short_desc_reas = l.get_short_description_reason()
+                if (short_desc_reas and
+                        short_desc_reas.startswith('transfer')):
+                    desc_orig = l.get_short_description()
+                    desc = self._replace_special_characters(desc_orig)
+                    if desc != desc_orig:
+                        err.append('NOTICE: Changed "' + desc_orig + '" to "' +
+                                   desc + '"')
+                    for p in member_ports:
+                        line = 'configure ports ' + p
+                        line += ' display-string ' + desc
+                        conf.append(line)
+                    l.set_short_description(desc, 'written')
+                # port description
+                if (l.get_description_reason() and
+                        l.get_description_reason().startswith('transfer')):
+                    desc_orig = l.get_description()
+                    desc = self._replace_special_characters(desc_orig)
+                    if desc != desc_orig:
+                        err.append('NOTICE: Changed "' + desc_orig + '" to "' +
+                                   desc + '"')
+                    for p in member_ports:
+                        line = 'configure ports ' + p
+                        line += ' description-string "' + desc + '"'
+                        conf.append(line)
+                    l.set_description(desc, 'written')
         return conf, err
 
     def _get_stp_processes_for_port(self, port_name):
@@ -637,6 +664,12 @@ class XosConfigWriter(Switch.ConfigWriter):
                         conf.append('disable stpd s0 auto-bind vlan'
                                     ' Default')
                         conf.append('configure stpd s0 mode mstp cist')
+                        for v_tag in stp.get_vlans():
+                            if self._switch.get_vlan(tag=v_tag) is not None:
+                                err.append('ERROR: Existing VLAN ' +
+                                           str(v_tag) + ' mapped to MST '
+                                           'instance 0 (CIST), but EXOS cannot'
+                                           ' map any VLANs to the CIST')
                         stp.set_vlans_reason(reason)
                     else:
                         sid = stp.get_mst_instance()
@@ -655,7 +688,17 @@ class XosConfigWriter(Switch.ConfigWriter):
                                 instance_with_vlans = True
                                 if v_tag == 1:
                                     no_instance_has_default_vlan = False
-                            stp.set_vlans_reason(reason)
+                        omitted_vlans = []
+                        for v_tag in stp.get_vlans():
+                            if self._switch.get_vlan(tag=v_tag) is None:
+                                omitted_vlans.append(v_tag)
+                        if omitted_vlans:
+                            err.append('WARN: EXOS can only map configured '
+                                       'VLANs to MST instances, the following '
+                                       'VLANs have been omitted from MST '
+                                       'instance ' + str(sid) + ': ' +
+                                       str(omitted_vlans))
+                        stp.set_vlans_reason(reason)
                 if (stp.get_priority_reason() and
                         stp.get_priority_reason().startswith('transfer')):
                     prio = stp.get_priority()
@@ -866,7 +909,7 @@ class XosConfigWriter(Switch.ConfigWriter):
         # login banner
         banner_login = self._switch.get_banner_login()
         if banner_login:
-            banner_lines = banner_login.replace('\\n', '\n').split('\n')
+            banner_lines = banner_login.split('\n')
             if '' in banner_lines:
                 err.append('WARN: EXOS banner cannot contain empty lines, '
                            'omitting empty lines')
@@ -886,7 +929,7 @@ class XosConfigWriter(Switch.ConfigWriter):
         # MOTD banner
         banner_motd = self._switch.get_banner_motd()
         if banner_motd:
-            banner_lines = banner_motd.replace('\\n', '\n').split('\n')
+            banner_lines = banner_motd.split('\n')
             if '' in banner_lines:
                 err.append('WARN: EXOS banner cannot contain empty lines, '
                            'omitting empty lines')
@@ -997,16 +1040,21 @@ class XosConfigWriter(Switch.ConfigWriter):
         if vlan_clash:
             err.append('ERROR: Both SVI and host management IP configured'
                        ' for the same VLAN (' + mvn + ')')
-        elif mvn and (not mgmt_proto or mgmt_proto == 'none'):
+        elif mvn:
             if mgmt_ip and mgmt_mask:
                 conf.append('configure vlan ' + mvn + ' ipaddress ' +
                             str(mgmt_ip) + ' ' + str(mgmt_mask))
                 self._switch.set_mgmt_ip(mgmt_ip, 'written')
                 self._switch.set_mgmt_mask(mgmt_mask, 'written')
                 self._switch.set_mgmt_vlan(mvn, 'written')
-                self._switch.set_mgmt_protocol(mgmt_proto, 'written')
-        elif mvn and mgmt_proto:
-            if mgmt_proto == 'bootp':
+                if mgmt_proto == 'bootp' or mgmt_proto == 'dhcp':
+                    r = self._switch.get_mgmt_protocol_reason()
+                    e = 'WARN: ' if r == 'transfer_def' else 'ERROR: '
+                    e += ('Management IPv4 address configured statically,'
+                          ' but dynamic IPv4 address assignment active,'
+                          ' using static IPv4 address only')
+                    err.append(e)
+            elif mgmt_proto == 'bootp':
                 conf.append('enable bootp vlan ' + mvn)
                 self._switch.set_mgmt_protocol(mgmt_proto, 'written')
             elif mgmt_proto == 'dhcp':
@@ -1156,6 +1204,295 @@ class XosConfigWriter(Switch.ConfigWriter):
             if not self._switch.get_sntp_client_reason() == 'default':
                 conf.append('disable sntp-client')
                 self._switch.set_sntp_client(sntp_client, 'written')
+        # timezone
+        write_timezone = False
+        c = 'configure timezone '
+        tz_name = self._switch.get_tz_name()
+        if tz_name:
+            c += 'name ' + tz_name + ' '
+            self._switch.set_tz_name(tz_name, 'written')
+            write_timezone = True
+        tz_offset = self._switch.get_tz_off_min()
+        if tz_offset is not None:
+            c += str(tz_offset) + ' '
+            self._switch.set_tz_off_min(tz_offset, 'written')
+            write_timezone = True
+        tz_dst_state = self._switch.get_tz_dst_state()
+        if not tz_dst_state:
+            c += 'noautodst'
+            if tz_dst_state is not None:
+                self._switch.set_tz_dst_state(tz_dst_state, 'written')
+        else:
+            c += 'autodst '
+            tz_dst_name = self._switch.get_tz_dst_name()
+            tz_dst_start = self._switch.get_tz_dst_start()
+            tz_dst_end = self._switch.get_tz_dst_end()
+            tz_dst_offset = self._switch.get_tz_dst_off_min()
+            if (write_timezone and
+                    (self._switch.get_tz_dst_start_reason() == 'default' or
+                     self._switch.get_tz_dst_end_reason() == 'default' or
+                     self._switch.get_tz_dst_off_min_reason() == 'default')):
+                err.append('NOTICE: Using EXOS default value(s) for daylight'
+                           'saving time (DST)')
+            if tz_dst_name:
+                c += 'name ' + tz_dst_name + ' '
+                self._switch.set_tz_dst_name(tz_dst_name, 'written')
+            c += str(tz_dst_offset) + ' '
+            c += ('begins every ' + tz_dst_start[0] + ' ' + tz_dst_start[1] +
+                  ' ' + tz_dst_start[2] + ' at ' + str(tz_dst_start[3]) + ' ' +
+                  str(tz_dst_start[4]) + ' ')
+            c += ('ends every ' + tz_dst_end[0] + ' ' + tz_dst_end[1] + ' ' +
+                  tz_dst_end[2] + ' at ' + str(tz_dst_end[3]) + ' ' +
+                  str(tz_dst_end[4]))
+            self._switch.set_tz_dst_state(tz_dst_state, 'written')
+            self._switch.set_tz_dst_start(tz_dst_start[0], tz_dst_start[1],
+                                          tz_dst_start[2], tz_dst_start[3],
+                                          tz_dst_start[4], 'written')
+            self._switch.set_tz_dst_end(tz_dst_end[0], tz_dst_end[1],
+                                        tz_dst_end[2], tz_dst_end[3],
+                                        tz_dst_end[4], 'written')
+            self._switch.set_tz_dst_off_min(tz_dst_offset, 'written')
+        if write_timezone:
+            conf.append(c)
+        # RADIUS for management access
+        rad_idx_lst = sorted(self._switch.get_all_radius_servers())
+        mgmt_acc_rad_srv_cnt = 0
+        rad_client_ip = None
+        reported_no_rad_client_ip_error = False
+        rad_client_intf_type = self._switch.get_radius_interface_type()
+        rad_client_intf_number = self._switch.get_radius_interface_number()
+        if (rad_client_intf_type is not None and
+                rad_client_intf_number is not None):
+            if rad_client_intf_type == 'vlan':
+                v = self._switch.get_vlan(tag=rad_client_intf_number)
+                if v is not None:
+                    addr_lst = v.get_ipv4_addresses()
+                    if addr_lst:
+                        rad_client_ip = addr_lst[0][0]
+            elif rad_client_intf_type == 'loopback':
+                l = self._switch.get_loopback(rad_client_intf_number)
+                if l is not None:
+                    addr_lst = l.get_ipv4_addresses()
+                    if addr_lst:
+                        rad_client_ip = addr_lst[0][0]
+            else:
+                err.append('WARN: Unknown interface type "' +
+                           rad_client_intf_type + '" used for RADIUS'
+                           ' client interface')
+            if rad_client_ip is not None:
+                rad_client_intf = self._switch.get_radius_interface()
+                self._switch.set_radius_interface(rad_client_intf, 'written')
+        elif mgmt_ip:
+            rad_client_ip = mgmt_ip
+        else:
+            lo_zero = self._switch.get_loopback(0)
+            lo_zero_ips = None
+            if lo_zero:
+                lo_zero_ips = lo_zero.get_ipv4_addresses()
+            if lo_zero_ips:
+                rad_client_ip = lo_zero_ips[0][0]
+        for idx in rad_idx_lst:
+            r = self._switch.get_radius_server(idx)
+            r_realm = r.get_realm()
+            if r_realm != 'management-access':
+                continue
+            if mgmt_acc_rad_srv_cnt > 1:
+                err.append('ERROR: EXOS supports at most two RADIUS servers'
+                           ' for management access')
+                break
+            r_ip = r.get_ip()
+            r_port = r.get_port()
+            r_secret = r.get_secret()
+            c = 'configure radius mgmt-access '
+            c += 'primary' if mgmt_acc_rad_srv_cnt == 0 else 'secondary'
+            c += ' server ' + str(r_ip) + ' ' + str(r_port) + ' client-ip '
+            c += str(rad_client_ip)
+            if r_secret:
+                c += ' shared-secret ' + str(r_secret)
+            if oob:
+                c += ' vr VR-Mgmt'
+            else:
+                c += ' vr VR-Default'
+            mgmt_acc_rad_srv_cnt += 1
+            if rad_client_ip:
+                conf.append(c)
+                r.set_is_written(True)
+            elif not reported_no_rad_client_ip_error:
+                err.append('ERROR: EXOS needs RADIUS client IP, but cannot'
+                           ' determine EOS RADIUS client IP')
+                err.append('NOTICE: EOS uses either the host IP or the'
+                           ' Loopback 0 IP as RADIUS client IP by default')
+                reported_no_rad_client_ip_error = True
+        # en/disable RADIUS for management access
+        rad_mgmt = self._switch.get_radius_mgmt_acc_enabled()
+        rad_mgmt_reason = self._switch.get_radius_mgmt_acc_enabled_reason()
+        if (rad_mgmt is not None and not rad_mgmt and rad_mgmt_reason and
+                rad_mgmt_reason.startswith('transfer')):
+            conf.append('disable radius mgmt-access')
+        if (rad_mgmt is not None and rad_mgmt and rad_mgmt_reason and
+                rad_mgmt_reason.startswith('transfer')):
+            conf.append('enable radius mgmt-access')
+        self._switch.set_radius_mgmt_acc_enabled(rad_mgmt, 'written')
+        # TACACS+ for management access
+        tac_idx_lst = sorted(self._switch.get_all_tacacs_servers())
+        tac_srv_cnt = 0
+        tac_client_ip = None
+        reported_no_tac_client_ip_error = False
+        tac_client_intf_type = self._switch.get_tacacs_interface_type()
+        tac_client_intf_number = self._switch.get_tacacs_interface_number()
+        if (tac_client_intf_type is not None and
+                tac_client_intf_number is not None):
+            if tac_client_intf_type == 'vlan':
+                v = self._switch.get_vlan(tag=tac_client_intf_number)
+                if v is not None:
+                    addr_lst = v.get_ipv4_addresses()
+                    if addr_lst:
+                        tac_client_ip = addr_lst[0][0]
+            elif tac_client_intf_type == 'loopback':
+                l = self._switch.get_loopback(tac_client_intf_number)
+                if l is not None:
+                    addr_lst = l.get_ipv4_addresses()
+                    if addr_lst:
+                        tac_client_ip = addr_lst[0][0]
+            else:
+                err.append('WARN: Unknown interface type "' +
+                           tac_client_intf_type + '" used for TACACS+'
+                           ' client interface')
+            if tac_client_ip is not None:
+                tac_client_intf = self._switch.get_tacacs_interface()
+                self._switch.set_tacacs_interface(tac_client_intf, 'written')
+        elif mgmt_ip:
+            tac_client_ip = mgmt_ip
+        else:
+            lo_zero = self._switch.get_loopback(0)
+            lo_zero_ips = None
+            if lo_zero:
+                lo_zero_ips = lo_zero.get_ipv4_addresses()
+            if lo_zero_ips:
+                tac_client_ip = lo_zero_ips[0][0]
+        for idx in tac_idx_lst:
+            t = self._switch.get_tacacs_server(idx)
+            if tac_srv_cnt > 1:
+                err.append('ERROR: EXOS supports at most two TACACS+ servers')
+                break
+            t_ip = t.get_ip()
+            t_port = t.get_port()
+            c1 = 'configure tacacs '
+            c1 += 'primary' if tac_srv_cnt == 0 else 'secondary'
+            c1 += ' server ' + str(t_ip) + ' ' + str(t_port) + ' client-ip '
+            c1 += str(tac_client_ip)
+            if oob:
+                c1 += ' vr VR-Mgmt'
+            else:
+                c1 += ' vr VR-Default'
+            t_secret = t.get_secret()
+            if t_secret:
+                c2 = 'configure tacacs '
+                c2 += 'primary' if tac_srv_cnt == 0 else 'secondary'
+                c2 += ' shared-secret ' + str(t_secret)
+            tac_srv_cnt += 1
+            if tac_client_ip:
+                conf.append(c1)
+                conf.append(c2)
+                t.set_is_written(True)
+            elif not reported_no_tac_client_ip_error:
+                err.append('ERROR: EXOS needs TACACS+ client IP, but cannot'
+                           ' determine EOS TACACS+ client IP')
+                err.append('NOTICE: On EOS, TACACS+ uses either the host IP'
+                           ' or the Loopback 0 IP as TACACS+ client IP by'
+                           ' default')
+                reported_no_tac_client_ip_error = True
+        # en/disable TACACS+ for management access
+        tac_mgmt = self._switch.get_tacacs_enabled()
+        tac_mgmt_reason = self._switch.get_tacacs_enabled_reason()
+        if (tac_mgmt is not None and not tac_mgmt and tac_mgmt_reason and
+                tac_mgmt_reason.startswith('transfer')):
+            conf.append('disable tacacs')
+        if (tac_mgmt is not None and tac_mgmt and tac_mgmt_reason and
+                tac_mgmt_reason.startswith('transfer')):
+            conf.append('enable tacacs')
+        self._switch.set_tacacs_enabled(tac_mgmt, 'written')
+        # SNMPv1 or SNMPv2c trap receiver
+        snmp_param_names = sorted(self._switch._snmp_target_params.keys())
+        snmp_target_names = sorted(self._switch._snmp_target_addrs.keys())
+        for trap_rec_name in snmp_target_names:
+            trap_rec = self._switch.get_snmp_target_addr(trap_rec_name)
+            ip, param_name = trap_rec.get_ip(), trap_rec.get_params()
+            if (not ip or not param_name or
+                    (param_name not in snmp_param_names)):
+                err.append('ERROR: incomplete configuration for SNMP trap'
+                           ' receiver "' + trap_rec_name + '"')
+                continue
+            params = self._switch.get_snmp_target_params(param_name)
+            community = params.get_user()
+            if not community:
+                err.append('ERROR: user (community) missing from SNMP target'
+                           ' parameters "' + param_name + '"')
+                continue
+            conf.append('configure snmp add trapreceiver ' + str(ip) +
+                        ' community ' + str(community))
+            trap_rec.set_is_written(True)
+            params.set_is_written(True)
+        # user accounts
+        account_names = sorted(self._switch._user_accounts.keys())
+        # admin is mapped to admin -> nothing to do
+        # rw is not mapped -> just warn
+        # ro is mapped to user -> copy settings
+        if 'rw' in account_names:
+            err.append('NOTICE: Ignoring user account "rw" as EXOS does not'
+                       ' differentiate super-user rights from read-write')
+            acc_rw = self._switch.get_user_account('rw')
+            acc_rw.set_is_written(True)
+            account_names.remove('rw')
+        if 'ro' in account_names:
+            err.append('NOTICE: Transfering "ro" user account settings to'
+                       ' "user"')
+            acc_ro = self._switch.get_user_account('ro')
+            acc_ro.set_is_written(True)
+            acc_user = self._switch.get_user_account('user')
+            # if defaults are ignored, no account "user" existed before
+            if 'user' not in account_names:
+                account_names.append('user')
+            acc_user.transfer_config(acc_ro)
+            acc_user.set_name('user')
+            account_names.remove('ro')
+        elif 'user' in account_names:
+            acc_user = self._switch.get_user_account('user')
+            if acc_user.get_is_default() is True:
+                err.append('NOTICE: Removing default user account "user"'
+                           ' because equivalent EOS default user account "ro"'
+                           ' is missing')
+                conf.append('delete account user')
+                account_names.remove('user')
+        # write remaining accounts
+        for a_name in account_names:
+            acc = self._switch.get_user_account(a_name)
+            a_pass = acc.get_password()
+            if not acc.get_is_default():
+                c = 'create account '
+                if acc.get_type() in {'super-user', 'read-write'}:
+                    c += 'admin '
+                else:
+                    c += 'user '
+                c += a_name
+                if a_pass:
+                    c += ' ' + a_pass
+                conf.append(c)
+            elif a_pass:
+                err.append('ERROR: Cannot configure clear text password on'
+                           ' default user account "' + a_name +
+                           '" non-interactively')
+                err.append('INFO: Password for default user account "' +
+                           a_name + '" can be configured interactively using '
+                           '"configure account ' + a_name + '" on EXOS')
+            if not a_pass:
+                err.append('NOTICE: User account "' + a_name + '" has no'
+                           ' password, consider setting with "configure'
+                           ' account ' + a_name + '" on EXOS')
+            a_state = acc.get_state()
+            if a_state == 'disable':
+                conf.append('disable account ' + a_name)
+            acc.set_is_written(True)
         # return configuration and errors
         return conf, err
 
