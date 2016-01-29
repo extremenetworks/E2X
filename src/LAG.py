@@ -69,11 +69,11 @@ class LAG(Port.Port):
                 self._lacp_aadminkey[1] != reason)
 
     def accidental_config_only(self):
-        '''Some commands affect all ports of the switch, including LAGs.
+        """Some commands affect all ports of the switch, including LAGs.
 
         Having such a configuration affecting a LAG does not imply the LAG
         is actually used.
-        '''
+        """
         reason = 'config'
         if (self._speed[1] == reason or
                 # ignore admin state (set port disable *.*.*)

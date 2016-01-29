@@ -1075,7 +1075,8 @@ class EosIpCommand(Switch.CmdInterpreter):
         vlan = self._switch.get_vlan(tag=intf[1])
         if 'sequence' in token_lst:
             warn = ('WARN: Ignoring "' + ' '.join(token_lst[-2:]) + '" in "' +
-                    'ip access-group ' + ' '.join(token_lst) + '"')
+                    'ip access-group ' + ' '.join(token_lst) + '" on "' +
+                    str(interface) + '"')
         if not vlan:
             return ('ERROR: VLAN "' + str(intf[1]) + '" does not exist (' +
                     ' '.join(token_lst) + ')')
@@ -1617,7 +1618,9 @@ class EosSetLoggingCommand(Switch.CmdInterpreter):
 
     def do_server(self, arg):
         # parse arg
-        err = 'ERROR parsing "set logging server ' + arg + '"'
+        err = ('DEBUG: Error parsing "set logging server ' + arg + '"\n' +
+               'NOTICE: Ignoring unknown command "set logging server ' + arg +
+               '"')
         token_types = [
             ('KEY_DESCR', 'descr'),
             ('KEY_FACILITY', 'facility'),
@@ -1871,14 +1874,14 @@ class EosSetRadiusCommand(Switch.CmdInterpreter):
 
     def do_disable(self, line):
         if line:
-            return ('NOTICE: Ignoring unknown command "set radius disable' +
+            return ('NOTICE: Ignoring unknown command "set radius disable ' +
                     line + '"')
         self._switch.set_radius_mgmt_acc_enabled(False, 'config')
         return ''
 
     def do_enable(self, line):
         if line:
-            return ('NOTICE: Ignoring unknown command "set radius enable' +
+            return ('NOTICE: Ignoring unknown command "set radius enable ' +
                     line + '"')
         self._switch.set_radius_mgmt_acc_enabled(True, 'config')
         return ''
@@ -1966,10 +1969,10 @@ class EosSetTacacsCommand(Switch.CmdInterpreter):
         t.set_ip(ip)
         t.set_port(port)
         enc_secret = False
-        if (len(secret) == 84 and secret[0] == secret[83] == ':' or
-                len(secret) == 83 and secret[0] == ':'):
+        if ((len(secret) == 84 and secret[0] == secret[83] == ':') or
+                (len(secret) == 83 and secret[0] == ':')):
             is_hex = True
-            for c in secret[1:84]:
+            for c in secret[1:83]:
                 if c not in '0123456789ABCDEFabcdef':
                     is_hex = False
                     break
@@ -1984,14 +1987,14 @@ class EosSetTacacsCommand(Switch.CmdInterpreter):
 
     def do_disable(self, line):
         if line:
-            return ('NOTICE: Ignoring unknown command "set tacacs disable' +
+            return ('NOTICE: Ignoring unknown command "set tacacs disable ' +
                     line + '"')
         self._switch.set_tacacs_enabled(False, 'config')
         return ''
 
     def do_enable(self, line):
         if line:
-            return ('NOTICE: Ignoring unknown command "set tacacs enable' +
+            return ('NOTICE: Ignoring unknown command "set tacacs enable ' +
                     line + '"')
         self._switch.set_tacacs_enabled(True, 'config')
         return ''
@@ -2345,7 +2348,7 @@ class EosCommand(Switch.CmdInterpreter):
         if not token_list:
             return 'ERROR: "access-list" command without arguments'
         acl_type = token_list[0]
-        """Numbered ACLs only, or "access-list interface" command."""
+        # numbered ACLs only, or "access-list interface" command
         if acl_type == 'interface':
             token_list.pop(0)
             return self._do_access_list_interface(token_list)

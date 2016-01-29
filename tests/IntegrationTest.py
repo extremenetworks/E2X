@@ -150,6 +150,8 @@ class IntegrationTest(unittest.TestCase):
         'set ip address 10.1.1.1 interface vlan.0.2 mask 255.255.255.0\n',
         'set ip address 10.1.1.1 interface vlan.0.2 mask 255.255.255.0 gateway'
         ' 10.0.0.1\n',
+        'set radius enable gibberish\n',
+        'set tacacs enable gibberish\n',
     ]
     unknown_tmpl = 'NOTICE: Ignoring unknown command "{}"\n'
     unknown_notices = []
@@ -1669,9 +1671,9 @@ class IntegrationTest(unittest.TestCase):
                            self.default_ignores)
         self.verify_output('stderr',
                            ['WARN: Ignoring "sequence 1" in "ip access-group 1'
-                            ' in sequence 1"\n',
+                            ' in sequence 1" on "interface vlan 1"\n',
                             'WARN: Ignoring "sequence 2" in "ip access-group 1'
-                            ' sequence 2"\n',
+                            ' sequence 2" on "interface vlan 1"\n',
                             'WARN: EXOS cannot disable switched virtual '
                             'interfaces, ignoring shutdown state of interface '
                             'VLAN 1\n',
@@ -1693,7 +1695,7 @@ class IntegrationTest(unittest.TestCase):
         self.stderrToFile(ret.stderr, 'stderr')
         self.verify_output('stderr',
                            ['ERROR: Only one ACL per VLAN possible with EXOS'
-                            ' (VLAN "Default", tag 1)\n'],
+                            ' (VLAN "Default", tag 1, ACLs: [1, 2])\n'],
                            [])
         self.verify_output('acl.acls/acl_1.pol',
                            ['entry 10 {\n', '  if {\n',
@@ -3783,6 +3785,92 @@ class IntegrationTest(unittest.TestCase):
                             'enable stpd s2\n'],
                            self.jumbo_ignore + self.ignore_web +
                            self.ignore_mgmt + self.ignore_idle)
+
+    def test_case_213(self):  # tacacs server, encr. secret
+        self.create_input('aaa.cfg',
+                          ['set ip address 192.0.2.1 mask 255.255.255.0\n',
+                           'set host vlan 1\n',
+                           'set tacacs server 1 192.0.2.33 49 '
+                           ':0123456789abcdef0123456789abcdef0123456789abcdef'
+                           '0123456789abcdef0123456789abcdef01\n',
+                           'set tacacs enable\n',
+                           ])
+        ret = self.script_env.run(self.script, 'aaa.cfg', '--ignore-defaults',
+                                  '--log-level=WARN', expect_stderr=True)
+        self.verify_output('aaa.xsf',
+                           ['configure vlan Default ipaddress 192.0.2.1'
+                            ' 255.255.255.0\n',
+                            'configure tacacs primary server'
+                            ' 192.0.2.33 49 client-ip 192.0.2.1'
+                            ' vr VR-Default\n',
+                            'enable tacacs\n',
+                            ],
+                           [])
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr', [
+            'WARN: Ignoring encrypted TACACS+ secret (set tacacs server 1'
+            ' 192.0.2.33 49 :0123456789abcdef0123456789abcdef0123456789ab'
+            'cdef0123456789abcdef0123456789abcdef01)\n'
+            ], [])
+        self.assertEqual(ret.returncode, 0, "Wrong exit code")
+
+    def test_case_214(self):  # tacacs server, encr. secret
+        self.create_input('aaa.cfg',
+                          ['set ip address 192.0.2.1 mask 255.255.255.0\n',
+                           'set host vlan 1\n',
+                           'set tacacs server 1 192.0.2.33 49 '
+                           ':0123456789abcdef0123456789abcdef0123456789abcdef'
+                           '0123456789abcdef0123456789abcdef01:\n',
+                           'set tacacs enable\n',
+                           ])
+        ret = self.script_env.run(self.script, 'aaa.cfg', '--ignore-defaults',
+                                  '--log-level=WARN', expect_stderr=True)
+        self.verify_output('aaa.xsf',
+                           ['configure vlan Default ipaddress 192.0.2.1'
+                            ' 255.255.255.0\n',
+                            'configure tacacs primary server'
+                            ' 192.0.2.33 49 client-ip 192.0.2.1'
+                            ' vr VR-Default\n',
+                            'enable tacacs\n',
+                            ],
+                           [])
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr', [
+            'WARN: Ignoring encrypted TACACS+ secret (set tacacs server 1'
+            ' 192.0.2.33 49 :0123456789abcdef0123456789abcdef0123456789ab'
+            'cdef0123456789abcdef0123456789abcdef01:)\n'
+            ], [])
+        self.assertEqual(ret.returncode, 0, "Wrong exit code")
+
+    def test_case_215(self):  # radius server, encr. secret
+        self.create_input('aaa.cfg',
+                          ['set ip address 192.0.2.1 mask 255.255.255.0\n',
+                           'set host vlan 1\n',
+                           'set radius server 1 192.0.2.33 1812 '
+                           ':0123456789abcdef0123456789abcdef0123456789abcdef'
+                           '0123456789abcdef0123456789abcdef01:'
+                           ' realm management-access\n',
+                           'set radius enable\n',
+                           ])
+        ret = self.script_env.run(self.script, 'aaa.cfg', '--ignore-defaults',
+                                  '--log-level=WARN', expect_stderr=True)
+        self.verify_output('aaa.xsf',
+                           ['configure vlan Default ipaddress 192.0.2.1'
+                            ' 255.255.255.0\n',
+                            'configure radius mgmt-access primary server'
+                            ' 192.0.2.33 1812 client-ip 192.0.2.1'
+                            ' vr VR-Default\n',
+                            'enable radius mgmt-access\n',
+                            ],
+                           [])
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr', [
+            'WARN: Ignoring encrypted RADIUS secret (set radius server 1'
+            ' 192.0.2.33 1812 :0123456789abcdef0123456789abcdef0123456789ab'
+            'cdef0123456789abcdef0123456789abcdef01: realm management-access)'
+            '\n'
+            ], [])
+        self.assertEqual(ret.returncode, 0, "Wrong exit code")
 
 
 if __name__ == '__main__':

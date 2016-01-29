@@ -138,6 +138,8 @@ In addition to translating individual command lines, how-tos can be displayed.
     Configure SNMPv1 Trap Receiver
     Set Passwords for Default Accounts
     Clear Default Non-Admin Accounts
+    Remove or Disable Default SNMP Credentials
+    Create a Port Mirror
 
 ### Commands
 
@@ -147,6 +149,7 @@ In addition to translating individual command lines, how-tos can be displayed.
     copy tftp://<IPV4_ADDRESS>/[<PATH>/]<IMAGE_FILE> system:image
     dir
     ip route <PREFIX> <NETMASK> <GATEWAY>
+    no access-list <NUMBER>
     reset [<NR>]
     save config
     set boot system <IMAGE_FILE>
@@ -159,6 +162,7 @@ In addition to translating individual command lines, how-tos can be displayed.
     set port broadcast <PORTSTRING> <NR>
     set port disable <PORTSTRING>
     set port enable <PORTSTRING>
+    set port mirroring create <SOURCE_PORT> <DESTINATION_PORT>
     set port trap <PORTSTRING> {enable|disable}
     set port vlan <PORTSTRING> <NR> [modify-egress]
     set sntp client

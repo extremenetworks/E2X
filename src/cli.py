@@ -42,7 +42,7 @@ import CM
 from InteractiveModeHandler import InteractiveModeHandler
 
 progname = 'e2x'
-progver = '0.9.2'
+progver = '0.9.3'
 progdesc = """\
 Translate ExtremeEOS switch configuration commands to ExtremeXOS. If no
 FILEs are specified, input is read from STDIN and written to STDOUT, and
@@ -133,8 +133,8 @@ class CommandLineParser:
 
 
 def normalize_messages(messages):
-    '''Split every message in the messages list on newlines.
-    '''
+    """Split every message in the messages list on newlines.
+    """
 
     ret = []
     for m in messages:

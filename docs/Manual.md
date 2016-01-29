@@ -503,6 +503,8 @@ switches C5K125-48P2 and Summit X460-48p with XGM3S-2SF:
     enable stpd s1 auto-bind vlan Default
     enable stpd s0
     enable stpd s1
+    enable dhcp vlan Default
+    configure idletimeout 5
     NOTICE: Mapping port "tg.1.49" to port "53"
     NOTICE: Mapping port "tg.1.50" to port "54"
     NOTICE: Port "49" of target switch is not used
@@ -510,6 +512,10 @@ switches C5K125-48P2 and Summit X460-48p with XGM3S-2SF:
     NOTICE: Port "51" of target switch is not used
     NOTICE: Port "52" of target switch is not used
     NOTICE: XOS always allows single port LAGs
+    NOTICE: Ignoring user account "rw" as EXOS does not differentiate super-user rights from read-write
+    NOTICE: Transfering "ro" user account settings to "user"
+    NOTICE: User account "admin" has no password, consider setting with "configure account admin" on EXOS
+    NOTICE: User account "user" has no password, consider setting with "configure account user" on EXOS
 
 #### GNU/Linux or Mac OS X
 
@@ -572,6 +578,8 @@ switches C5K125-48P2 and Summit X460-48p with XGM3S-2SF:
     enable stpd s1 auto-bind vlan Default
     enable stpd s0
     enable stpd s1
+    enable dhcp vlan Default
+    configure idletimeout 5
     NOTICE: Mapping port "tg.1.49" to port "53"
     NOTICE: Mapping port "tg.1.50" to port "54"
     NOTICE: Port "49" of target switch is not used
@@ -579,6 +587,10 @@ switches C5K125-48P2 and Summit X460-48p with XGM3S-2SF:
     NOTICE: Port "51" of target switch is not used
     NOTICE: Port "52" of target switch is not used
     NOTICE: XOS always allows single port LAGs
+    NOTICE: Ignoring user account "rw" as EXOS does not differentiate super-user rights from read-write
+    NOTICE: Transfering "ro" user account settings to "user"
+    NOTICE: User account "admin" has no password, consider setting with "configure account admin" on EXOS
+    NOTICE: User account "user" has no password, consider setting with "configure account user" on EXOS
 
 ### Ignore Default Configuration
 
@@ -677,6 +689,8 @@ differences in source- and target switches, use the ```--quiet``` option.
     enable stpd s1 auto-bind vlan Default
     enable stpd s0
     enable stpd s1
+    enable dhcp vlan Default
+    configure idletimeout 5
 
 #### GNU/Linux or Mac OS X
 
@@ -739,6 +753,8 @@ differences in source- and target switches, use the ```--quiet``` option.
     enable stpd s1 auto-bind vlan Default
     enable stpd s0
     enable stpd s1
+    enable dhcp vlan Default
+    configure idletimeout 5
 
 ### Translating Configuration From File
 
@@ -773,6 +789,10 @@ use the file name as argument to E2X.
     NOTICE: Port "50" of target switch is not used
     NOTICE: Port "51" of target switch is not used
     NOTICE: Port "52" of target switch is not used
+    NOTICE: Ignoring user account "rw" as EXOS does not differentiate super-user rights from read-write
+    NOTICE: Transfering "ro" user account settings to "user"
+    NOTICE: User account "admin" has no password, consider setting with "configure account admin" on EXOS
+    NOTICE: User account "user" has no password, consider setting with "configure account user" on EXOS
 
     >dir sample.*
      Volume in drive C has no label.
@@ -788,6 +808,8 @@ use the file name as argument to E2X.
     >type sample.xsf
     disable ports 53
     disable ports 54
+    enable dhcp vlan Default
+    configure idletimeout 5
 
 #### GNU/Linux or Mac OS X
 
@@ -810,6 +832,10 @@ use the file name as argument to E2X.
     NOTICE: Port "50" of target switch is not used
     NOTICE: Port "51" of target switch is not used
     NOTICE: Port "52" of target switch is not used
+    NOTICE: Ignoring user account "rw" as EXOS does not differentiate super-user rights from read-write
+    NOTICE: Transfering "ro" user account settings to "user"
+    NOTICE: User account "admin" has no password, consider setting with "configure account admin" on EXOS
+    NOTICE: User account "user" has no password, consider setting with "configure account user" on EXOS
 
     $ ls sample.*
     sample.cfg  sample.xsf
@@ -817,6 +843,8 @@ use the file name as argument to E2X.
     $ cat sample.xsf
     disable ports 53
     disable ports 54
+    enable dhcp vlan Default
+    configure idletimeout 5
 
 ### Manually Entering Commands
 
@@ -839,9 +867,7 @@ between the two CTRL-D inputs.
     # Enter EOS configuration commands, one per line.
     # End with CTRL+D (sometimes needed twice)
     set port disable tg.1.49
-
-*CTRL+D* *CTRL+D*
-
+     [CTRL+D] [CTRL+D]
     disable ports 53
 
 ### Piping Command Output Into E2X
@@ -862,26 +888,34 @@ Inquiring about the firmware upgrade procedure on EXOS by displaying a how-to.
 The individual EOS commands shown in the how-to can be translated as well.
 
     $ e2x.py --interactive
-    e2x v0.7.0
+    e2x v0.9.3
     Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
     Use is subject to license terms.
     This is free software, licensed under CDDL 1.0
 
     % Command translation assumes VLAN 1 for management
 
-    Enter "howtos" to show list
-    Enter "1".."2" to select HowTo
-    Enter configline to translate
+    Enter "HowTos" or "commands" to show list
+    Enter number from "1" to "12" to select HowTo
     Enter "q" to quit
 
     e2x> howtos
 
     List of HowTos:
-      1: Upgrade firmware
-      2: Reset switch to factory defaults
+       1: Upgrade firmware
+       2: Reset switch to factory defaults
+       3: Configure Management IP Address
+       4: Configure Router IP Address
+       5: Create a VLAN
+       6: Configure a Quiet Switch
+       7: Configure SNMPv3
+       8: Configure SNMPv1 Trap Receiver
+       9: Set Passwords for Default Accounts
+      10: Clear Default Non-Admin Accounts
+      11: Remove or Disable Default SNMP Credentials
+      12: Create a Port Mirror
 
-    Enter "1".."2" to select HowTo
-    Enter configline to translate
+    Enter number from "1" to "12" to select HowTo
     Enter "q" to quit
 
     e2x> 1
@@ -904,13 +938,12 @@ The individual EOS commands shown in the how-to can be translated as well.
        You may need to install additional XMODs, e.g. for SSH.
 
 
-    Enter "howtos" to show list
-    Enter "1".."2" to select HowTo
-    Enter configline to translate
+    Enter "HowTos" or "commands" to show list
+    Enter number from "1" to "12" to select HowTo
     Enter "q" to quit
 
     e2x> copy tftp://192.0.2.33/exos/summitX-15.4.1.3.xos system:image
-    download image 192.0.2.33 exos/summitX-15.4.1.3.xos vr VR-Default primary
+    download image 192.0.2.33 exos/summitX-15.4.1.3.xos vr VR-Default {primary|secondary}
     e2x> set boot system exos/summitX-15.4.1.3.xos
     use image partition {primary|secondary}
     e2x> reset

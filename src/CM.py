@@ -269,6 +269,8 @@ class CoreModule:
                         err.append('WARN: LAG "' + sl.get_name() + '" '
                                    'cannot be mapped to target switch')
                     else:
+                        err.append('INFO: Mapping LAG "' + sl.get_name() +
+                                   '" to "' + new_lag_name + '"')
                         param = [sl.get_label(), new_lag_name,
                                  sl.get_lacp_enabled(),
                                  sl.get_lacp_aadminkey()]
@@ -278,6 +280,9 @@ class CoreModule:
                         new_lag.transfer_config(sl)
                         error = self.target.add_lag(new_lag)
                         if error:
+                            err.append('DEBUG: add_lag() returned an error'
+                                       ' while mapping "' + sl.get_name() +
+                                       '" to "' + new_lag_name + '"')
                             err.append(error)
                         else:
                             self._lag_mapping_s2t[sl.get_name()] = \

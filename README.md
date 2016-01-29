@@ -57,7 +57,7 @@ is started using the option `--interactive`:
 
 ```
 $ e2x.py --interactive
-e2x v0.9.2
+e2x v0.9.3
 Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
 Use is subject to license terms.
 This is free software, licensed under CDDL 1.0
@@ -65,7 +65,7 @@ This is free software, licensed under CDDL 1.0
 % Command translation assumes VLAN 1 for management
 
 Enter "HowTos" or "commands" to show list
-Enter number from "1" to "8" to select HowTo
+Enter number from "1" to "12" to select HowTo
 Enter "q" to quit
 
 e2x>

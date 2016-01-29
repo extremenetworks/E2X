@@ -295,7 +295,9 @@ class Switch:
             for l in self._lags:
                 if l.get_name() == lag.get_name():
                     return ('ERROR: LAG with name "' + lag.get_name() +
-                            '" already exists, cannot add it to switch again')
+                            '", actor admin key "' +
+                            str(lag._lacp_aadminkey[0]) +
+                            '", already exists, cannot add it to switch again')
             self._lags.append(lag)
             return ''
         else:
@@ -1292,12 +1294,13 @@ class Switch:
                 return acl
         return None
 
-    # TODO This is ambiguous
     def add_acl(self, number=None, name=None):
         if number is None and not name:
             return 'ERROR: ACL needs name or number'
         if number and name:
-            return 'ERROR: ACL can have either name or number, but not both'
+            return ('ERROR: ACL can have either name or number, but not'
+                    ' both (name: ' + str(name) + ', number: ' + str(number) +
+                    ')')
         acl = None
         if number and self.get_acl_by_number(number):
             return 'ERROR: ACL "' + str(number) + '" already exists'

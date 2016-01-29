@@ -291,6 +291,13 @@ class Translator:
                  'show edp ports all\nshow lldp neighbors\nshow cdp neighbor',
                  ''),
                 (r'set\s+password\s+(\S+)', r'configure account \1', ''),
+                (r'no access-list \S+', r'rm <ACL_NAME>.pol',
+                 'ACLs are stored as .pol files on EXOS'),
+                (r'set port mirroring create \S+ \S+',
+                 'create mirror <MIRROR_NAME>\n'
+                 'enable mirror <MIRROR_NAME> to port <DESTINATION_PORT>\n'
+                 'configure mirror <MIRROR_NAME> add port <SOURCE_PORT>'
+                 ' ingress-and-egress', ''),
                 )
             self.pattern_replacements = list(PatternReplacement(p, r, h) for
                                              p, r, h in pat_repl_lst)

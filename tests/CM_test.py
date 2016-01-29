@@ -613,7 +613,7 @@ class CM_Test(unittest.TestCase):
 
     def test_create_lag_mapping_srclag_unmapped_ok(self):
         expectedRet = True
-        expectedErrLst = []
+        expectedErrLst = ['INFO: Mapping LAG "lag.0.2" to "tgt_lag_2"']
         srcLag2_Name = 'lag.0.2'
         targetLag2_Name = 'tgt_lag_2'
         srcLag2 = Mock(spec=LAG)

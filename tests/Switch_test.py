@@ -59,6 +59,7 @@ class Switch_test(unittest.TestCase):
 
         cls.mockLag = MagicMock(spec=LAG.LAG)
         cls.mockLag.get_name.return_value = 'bar'
+        cls.mockLag._lacp_aadminkey = (4711, None)
 
         cls.mockStp = MagicMock(spec=STP.STP)
         cls.mockStp.get_mst_instance.return_value = 1
@@ -413,8 +414,9 @@ class Switch_test(unittest.TestCase):
         self.sw._lags.append(self.mockLag)
         expLen = len(self.sw._lags)
         expResult = self.ErrorStart + 'LAG with name "' + \
-            self.mockLag.get_name() + '" already exists, cannot add it to ' + \
-            'switch again'
+            self.mockLag.get_name() + '", actor admin key "' + \
+            str(self.mockLag._lacp_aadminkey[0]) + \
+            '", already exists, cannot add it to switch again'
 
         result = self.sw.add_lag(self.mockLag)
 

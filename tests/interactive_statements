@@ -8,6 +8,7 @@
 {"dir":["show version image","ls"]}
 {"ip route 0.0.0.0 0.0.0.0 192.168.0.1":"configure iproute add default 192.168.0.1 vr VR-Default"}
 {"ip route 192.168.2.0 255.255.255.0 192.168.0.1":"configure iproute add 192.168.2.0 255.255.255.0 192.168.0.1 vr VR-Default"}
+{"no access-list 89":["rm <ACL_NAME>.pol","% ACLs are stored as .pol files on EXOS"]}
 {"reset":"reboot"}
 {"reset 1":"reboot slot 1"}
 {"save config":"save configuration"}
@@ -23,6 +24,7 @@
 {"set port broadcast ge.1.1 10":"configure ports <PORTSTRING> rate-limit flood broadcast 10"}
 {"set port enable ge.1.1":"enable ports <PORTSTRING>"}
 {"set port disable ge.1.1":"disable ports <PORTSTRING>"}
+{"set port mirroring create ge.1.1 ge.1.2":["create mirror <MIRROR_NAME>", "enable mirror <MIRROR_NAME> to port <DESTINATION_PORT>", "configure mirror <MIRROR_NAME> add port <SOURCE_PORT> ingress-and-egress"]}
 {"set port trap ge.1.1 enable":"enable snmp traps port-up-down ports <PORTSTRING>"}
 {"set port trap ge.1.1 disable":"disable snmp traps port-up-down ports <PORTSTRING>"}
 {"set port vlan test 1000":["configure vlan <VLAN_WITH_TAG_1000> add ports <PORTSTRING>","% Untagged ingress and egress are always the same on EXOS"]}

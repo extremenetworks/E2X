@@ -373,7 +373,8 @@ class XosConfigWriter(Switch.ConfigWriter):
             if len(ipv4_acl_in_lst) > 1:
                 err.append('ERROR: Only one ACL per VLAN possible with EXOS' +
                            ' (VLAN "' + vlan.get_name() + '", tag ' +
-                           str(vlan.get_tag()) + ')')
+                           str(vlan.get_tag()) + ', ACLs: ' +
+                           str(ipv4_acl_in_lst) + ')')
                 ipv4_acl_in = None
             elif ipv4_acl_in_lst:
                 ipv4_acl_in = ipv4_acl_in_lst[0]
@@ -465,12 +466,10 @@ class XosConfigWriter(Switch.ConfigWriter):
                     err.append('NOTICE: XOS always allows single port LAGs')
             self._switch.set_single_port_lag(False, 'warned')
         if self._switch.get_max_lag_reason() == 'transfer_conf':
-            # TODO: verify if this is correct
             err.append('WARN: Maximum number of LAGs cannot be configured'
                        ' on XOS')
             self._switch.set_max_lag(None, 'not supported')
         if self._switch.get_lacp_support_reason() == 'transfer_conf':
-            # TODO: verify if this is correct
             err.append('ERROR: LACP cannot be enabled/disabled globally'
                        ' on XOS')
             self._switch.set_lacp_support(True, 'not configurable')
@@ -1386,6 +1385,7 @@ class XosConfigWriter(Switch.ConfigWriter):
             else:
                 c1 += ' vr VR-Default'
             t_secret = t.get_secret()
+            c2 = None
             if t_secret:
                 c2 = 'configure tacacs '
                 c2 += 'primary' if tac_srv_cnt == 0 else 'secondary'
@@ -1393,7 +1393,8 @@ class XosConfigWriter(Switch.ConfigWriter):
             tac_srv_cnt += 1
             if tac_client_ip:
                 conf.append(c1)
-                conf.append(c2)
+                if c2 is not None:
+                    conf.append(c2)
                 t.set_is_written(True)
             elif not reported_no_tac_client_ip_error:
                 err.append('ERROR: EXOS needs TACACS+ client IP, but cannot'

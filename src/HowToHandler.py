@@ -149,8 +149,8 @@ VR-Default &lt;PARTITION&gt;
       configure vlan &lt;VLANNAME&gt; add ports &lt;PORTSTRING&gt; tagged\
     </xos>
     <hint>\
-      Untagged ports must be deleted from current VLAN before they can be
-      added to a new VLAN on XOS.\
+      Untagged ports must be deleted from their current VLAN before they can
+      be added to a new VLAN on XOS.\
     </hint>
   </howto>
   <howto desc="Configure a Quiet Switch">
@@ -227,9 +227,9 @@ defaultAdminView\
       configure account user\
     </xos>
     <hint>\
-      EOS admin and EXOS admin are equivalent.
-      EOS ro and EXOS user are equivalent.
-      There is no counterpart for EOS rw on EXOS.\
+      EOS admin and XOS admin are equivalent.
+      EOS ro and XOS user are equivalent.
+      There is no counterpart for EOS rw on XOS.\
     </hint>
   </howto>
   <howto desc="Clear Default Non-Admin Accounts">
@@ -241,9 +241,46 @@ defaultAdminView\
       delete account user\
     </xos>
     <hint>\
-      EOS admin and EXOS admin are equivalent.
-      EOS ro and EXOS user are equivalent.
-      There is no counterpart for EOS rw on EXOS.\
+      EOS admin and XOS admin are equivalent.
+      EOS ro and XOS user are equivalent.
+      There is no counterpart for EOS rw on XOS.\
+    </hint>
+  </howto>
+  <howto desc="Remove or Disable Default SNMP Credentials">
+    <eos>\
+      clear snmp community public
+      clear snmp user public\
+    </eos>
+    <xos>\
+      disable snmp community public
+      disable snmp community private
+      disable snmpv3 default-user
+      disable snmpv3 default-group
+      configure snmp delete community readonly all
+      configure snmp delete community readwrite all
+      configure snmpv3 delete user admin
+      configure snmpv3 delete user initial
+      configure snmpv3 delete user initialmd5
+      configure snmpv3 delete user initialsha
+      configure snmpv3 delete user initialmd5Priv
+      configure snmpv3 delete user initialshaPriv\
+    </xos>
+    <hint>\
+      All unused SNMP credentials should be disabled or deleted.\
+    </hint>
+  </howto>
+  <howto desc="Create a Port Mirror">
+    <eos>\
+      set port mirroring create &lt;SOURCE_PORT&gt; &lt;DESTINATION_PORT&gt;\
+    </eos>
+    <xos>\
+      create mirror &lt;MIRROR_NAME&gt;
+      enable mirror &lt;MIRROR_NAME&gt; to port &lt;DESTINATION_PORT&gt;
+      configure mirror &lt;MIRROR_NAME&gt; add port &lt;SOURCE_PORT&gt; \
+ingress-and-egress\
+    </xos>
+    <hint>\
+      XOS supports complex port mirror condiguration.\
     </hint>
   </howto>
 </howtos>
