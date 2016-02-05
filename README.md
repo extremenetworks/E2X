@@ -57,8 +57,8 @@ is started using the option `--interactive`:
 
 ```
 $ e2x.py --interactive
-e2x v0.9.3
-Copyright 2014-2015 Extreme Networks, Inc.  All rights reserved.
+e2x v1.0.0
+Copyright 2014-2016 Extreme Networks, Inc.  All rights reserved.
 Use is subject to license terms.
 This is free software, licensed under CDDL 1.0
 

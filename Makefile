@@ -40,24 +40,27 @@ src/InteractiveModeCommandList.py: Makefile src/interactive_command_list_middle
 		src/interactive_command_list_middle \
 		src/interactive_command_list_end > $@
 
-src-dist: $(DIST)
+src-dist: distclean $(DIST)
 
 $(DIST): $(SOURCES) $(TESTS) $(RUNTESTS) $(RUNTESTS_WIN) \
             $(INTEGRATIONTEST) $(MARKDOWNDOCS) $(LICENSE) $(TEMPLATES) \
             $(TOOLS) Makefile
+	$(RM) $@
 	zip $@ $(SOURCES) $(TESTS) $(RUNTESTS) $(RUNTESTS_WIN) \
                $(INTEGRATIONTEST) $(MARKDOWNDOCS) $(LICENSE) $(TEMPLATES) \
                $(TOOLS) Makefile
 
-bin-dist: $(BINDIST)
+bin-dist: distclean $(BINDIST)
 
 $(BINDIST): $(BINARY) $(MARKDOWNDOCS) $(LICENSE)
+	$(RM) $@
 	zip $@ $(BINARY) $(MARKDOWNDOCS) $(LICENSE)
 
 preview: $(PREVIEW)
 
 $(PREVIEW): $(BINARY) $(SOURCES) $(TESTS) $(RUNTESTS) $(RUNTESTS_WIN) \
             $(INTEGRATIONTEST) $(MARKDOWNDOCS) $(LICENSE)
+	$(RM) $@
 	zip $@ $(BINARY) $(SOURCES) $(TESTS) $(RUNTESTS) $(RUNTESTS_WIN) \
                $(INTEGRATIONTEST) $(MARKDOWNDOCS) $(LICENSE)
 
