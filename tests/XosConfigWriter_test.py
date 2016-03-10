@@ -275,6 +275,21 @@ class XosConfigWriter_test(unittest.TestCase):
         self.mockVlan.set_name.assert_called_once_with('foo_bar')
         self.mockVlan.reset_mock()
 
+    def test_normalize_vlan_reserved_keyword_name(self):
+        self.mockVlan.reset_mock()
+        name = 'management'
+        self.mockVlan.get_name.return_value = name
+        self.mockVlan.get_egress_ports.return_value = []
+        expected = [self.NoticeStart +
+                    'Replaced VLAN name "' + name + '" with "vl_' + name + '"'
+                    ' because "' + name + '" is a reserved keyword in XOS']
+
+        result = self.cw._normalize_vlan(self.mockVlan)
+
+        self.assertEqual(expected, result)
+        self.mockVlan.set_name.assert_called_once_with('vl_' + name)
+        self.mockVlan.reset_mock()
+
     def test_normalize_vlan_vlan_has_no_name_and_no_tag(self):
         vlan = VLAN.VLAN()
         expected = [self.ErrorStart + 'VLAN cannot have neither ' +

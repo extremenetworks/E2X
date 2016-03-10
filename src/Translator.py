@@ -95,7 +95,7 @@ class Translator:
                  ''),
                 ('set telnet (enable|disable) outbound',
                  '',
-                 'Outbound telnet cannot be disabled on EXOS'
+                 'Outbound telnet cannot be disabled on XOS'
                  ' (always enabled)'),
                 ('show telnet', 'show management | include Telnet', ''),
                 ('set ssh (enable|disable)d', r'\1 ssh2', ''),
@@ -136,7 +136,7 @@ class Translator:
                  ''),
                 (r'set port vlan \S+ (\d+)( modify-egress)?',
                  r'configure vlan <VLAN_WITH_TAG_\1> add ports <PORTSTRING>',
-                 'Untagged ingress and egress are always the same on EXOS'),
+                 'Untagged ingress and egress are always the same on XOS'),
                 ('show port vlan( \S+)?',
                  'show ports [<PORTSTRING>] information detail | include'
                  ' "(^Port|(Internal|802.1Q) Tag)"',
@@ -240,10 +240,10 @@ class Translator:
                 ('set sntp client disable', 'disable sntp-client', ''),
                 ('set sntp client broadcast',
                  'enable sntp-client',
-                 'EXOS uses unicast mode if an SNTP server is configured'),
+                 'XOS uses unicast mode if an SNTP server is configured'),
                 ('set sntp client unicast',
                  'enable sntp-client',
-                 'EXOS uses broadcast mode if no SNTP server is configured'),
+                 'XOS uses broadcast mode if no SNTP server is configured'),
                 (r'set port (enable|disable) \S+',
                  r'\1 ports <PORTSTRING>',
                  ''),
@@ -292,7 +292,7 @@ class Translator:
                  ''),
                 (r'set\s+password\s+(\S+)', r'configure account \1', ''),
                 (r'no access-list \S+', r'rm <ACL_NAME>.pol',
-                 'ACLs are stored as .pol files on EXOS'),
+                 'ACLs are stored as .pol files on XOS'),
                 (r'set port mirroring create \S+ \S+',
                  'create mirror <MIRROR_NAME>\n'
                  'enable mirror <MIRROR_NAME> to port <DESTINATION_PORT>\n'

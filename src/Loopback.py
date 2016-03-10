@@ -33,7 +33,7 @@ class Loopback():
     """Model of a Loopback Interface.
 
     A Loopback interface is modeled like a VLAN without ports, tags, etc.
-    This basically fits with EXOS notion of "loopback" mode for a VLAN
+    This basically fits with XOS notion of "loopback" mode for a VLAN
     and the similarities of a Loopback interface and an SVI.
     """
 

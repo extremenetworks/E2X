@@ -42,7 +42,7 @@ import CM
 from InteractiveModeHandler import InteractiveModeHandler
 
 progname = 'e2x'
-progver = '1.0.0'
+progver = '1.0.1'
 progdesc = """\
 Translate ExtremeEOS switch configuration commands to ExtremeXOS. If no
 FILEs are specified, input is read from STDIN and written to STDOUT, and

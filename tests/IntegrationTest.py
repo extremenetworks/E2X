@@ -70,13 +70,13 @@ class IntegrationTest(unittest.TestCase):
                         "respectively RSTP configuration",
                         "INFO: XOS does not support automatic RSTP/MSTP edge "
                         "port detection"]
-    ignore_user = ['NOTICE: Ignoring user account "rw" as EXOS does not'
+    ignore_user = ['NOTICE: Ignoring user account "rw" as XOS does not'
                    ' differentiate super-user rights from read-write',
                    'NOTICE: Transfering "ro" user account settings to "user"',
                    'NOTICE: User account "admin" has no password, consider'
-                   ' setting with "configure account admin" on EXOS',
+                   ' setting with "configure account admin" on XOS',
                    'NOTICE: User account "user" has no password, consider'
-                   ' setting with "configure account user" on EXOS']
+                   ' setting with "configure account user" on XOS']
 
     # EOS has jumbo frames enabled by default
     def_jumbo_conf = ['enable jumbo-frame ports ' + str(i) + '\n'
@@ -97,10 +97,10 @@ class IntegrationTest(unittest.TestCase):
     # EOS enables DHCP for the managament IP address by default
     def_mgmt_conf = ['enable dhcp vlan Default\n']
 
-    # EOS uses 5min default idle timeout, EXOS 20 min
+    # EOS uses 5min default idle timeout, XOS 20 min
     def_idle_conf = ['configure idletimeout 5\n']
 
-    # different defaults between EOS and EXOS result in normal messages
+    # different defaults between EOS and XOS result in normal messages
     def_map_msg = [
         'NOTICE: Mapping port "tg.1.49" to port "53"\n',
         'NOTICE: Mapping port "tg.1.50" to port "54"\n',
@@ -111,13 +111,13 @@ class IntegrationTest(unittest.TestCase):
     ]
     def_lag_msg = ['NOTICE: XOS always allows single port LAGs\n']
     def_usr_msg = [
-        'NOTICE: Ignoring user account "rw" as EXOS does not differentiate'
+        'NOTICE: Ignoring user account "rw" as XOS does not differentiate'
         ' super-user rights from read-write\n',
         'NOTICE: Transfering "ro" user account settings to "user"\n',
         'NOTICE: User account "admin" has no password, consider setting with'
-        ' "configure account admin" on EXOS\n',
+        ' "configure account admin" on XOS\n',
         'NOTICE: User account "user" has no password, consider setting with'
-        ' "configure account user" on EXOS\n',
+        ' "configure account user" on XOS\n',
     ]
 
     # default config generated with empty input file
@@ -161,7 +161,7 @@ class IntegrationTest(unittest.TestCase):
     for c in unknown_notices:
         unknown_errors.append(c.replace('NOTICE', 'ERROR', 1))
 
-    # EOS configuration that results in empty translation for EXOS
+    # EOS configuration that results in empty translation for XOS
     eos_to_exos_defaults_conf = [
         'set port jumbo disable *.*.*\n',
         'set spantree disable\n',
@@ -1062,7 +1062,7 @@ class IntegrationTest(unittest.TestCase):
         expected_errors = [
             'NOTICE: Writing translated configuration to file '
             '"testoutput.xsf"\n',
-            'ERROR: Existing VLAN 1 mapped to MST instance 0 (CIST), but EXOS'
+            'ERROR: Existing VLAN 1 mapped to MST instance 0 (CIST), but XOS'
             ' cannot map any VLANs to the CIST\n',
             'ERROR: No VLANs associated with any MST instance\n',
             'WARN: VLAN "Default" with tag "1" is not part of any MST'
@@ -1572,7 +1572,7 @@ class IntegrationTest(unittest.TestCase):
                                   expect_stderr=True, expect_error=True)
         self.stderrToFile(ret.stderr, 'stderr')
         self.verify_output('stderr',
-                           ['ERROR: EXOS allows only one ACL per port '
+                           ['ERROR: XOS allows only one ACL per port '
                             '(port "1")\n'],
                            [])
         self.verify_output('acl.acls/acl_1.pol',
@@ -1674,7 +1674,7 @@ class IntegrationTest(unittest.TestCase):
                             ' in sequence 1" on "interface vlan 1"\n',
                             'WARN: Ignoring "sequence 2" in "ip access-group 1'
                             ' sequence 2" on "interface vlan 1"\n',
-                            'WARN: EXOS cannot disable switched virtual '
+                            'WARN: XOS cannot disable switched virtual '
                             'interfaces, ignoring shutdown state of interface '
                             'VLAN 1\n',
                             ],
@@ -1694,7 +1694,7 @@ class IntegrationTest(unittest.TestCase):
                                   expect_stderr=True, expect_error=True)
         self.stderrToFile(ret.stderr, 'stderr')
         self.verify_output('stderr',
-                           ['ERROR: Only one ACL per VLAN possible with EXOS'
+                           ['ERROR: Only one ACL per VLAN possible with XOS'
                             ' (VLAN "Default", tag 1, ACLs: [1, 2])\n'],
                            [])
         self.verify_output('acl.acls/acl_1.pol',
@@ -1994,7 +1994,7 @@ class IntegrationTest(unittest.TestCase):
         self.verify_output('prompt.xsf',
                            ['configure snmp sysName "Switch01"\n'],
                            [])
-        self.verify_output('stderr', ['WARN: The EXOS prompt is derived from'
+        self.verify_output('stderr', ['WARN: The XOS prompt is derived from'
                                       ' the snmp system name, ignoring the '
                                       'configured prompt\n'],
                            self.default_ignores + self.ignore_outfile +
@@ -2116,7 +2116,7 @@ class IntegrationTest(unittest.TestCase):
             '***\n',
             '\n',
         ], self.default_ignores)
-        self.verify_output('stderr', ['WARN: EXOS banner cannot contain empty'
+        self.verify_output('stderr', ['WARN: XOS banner cannot contain empty'
                                       ' lines, omitting empty lines\n'],
                            self.default_ignores + self.ignore_outfile +
                            self.ignore_lag_info + self.ignore_info_vlan_1 +
@@ -2134,7 +2134,7 @@ class IntegrationTest(unittest.TestCase):
             'disable telnet\n',
         ], self.default_ignores)
         self.verify_output('stderr', ['WARN: Outbound telnet cannot be '
-                                      'disabled on EXOS\n'],
+                                      'disabled on XOS\n'],
                            self.default_ignores + self.ignore_outfile +
                            self.ignore_lag_info + self.ignore_info_vlan_1 +
                            self.ignore_port_mapping + self.ignore_stpd_info +
@@ -2151,7 +2151,7 @@ class IntegrationTest(unittest.TestCase):
             'disable telnet\n',
         ], self.default_ignores)
         self.verify_output('stderr', ['WARN: Outbound telnet cannot be '
-                                      'disabled on EXOS\n'],
+                                      'disabled on XOS\n'],
                            self.default_ignores + self.ignore_outfile +
                            self.ignore_lag_info + self.ignore_info_vlan_1 +
                            self.ignore_port_mapping + self.ignore_stpd_info +
@@ -2198,7 +2198,7 @@ class IntegrationTest(unittest.TestCase):
         self.stderrToFile(ret.stderr, 'stderr')
         self.verify_output('test.xsf', [], self.default_ignores)
         self.verify_output('stderr', ['WARN: Outbound telnet cannot be '
-                                      'disabled on EXOS\n'],
+                                      'disabled on XOS\n'],
                            self.default_ignores + self.ignore_outfile +
                            self.ignore_lag_info + self.ignore_info_vlan_1 +
                            self.ignore_port_mapping + self.ignore_stpd_info +
@@ -2227,7 +2227,7 @@ class IntegrationTest(unittest.TestCase):
         self.stderrToFile(ret.stderr, 'stderr')
         self.verify_output('test.xsf', [], self.default_ignores)
         self.verify_output('stderr', ['INFO: Outbound telnet is always '
-                                      'enabled on EXOS\n'],
+                                      'enabled on XOS\n'],
                            self.default_ignores + self.ignore_outfile +
                            self.ignore_lag_info + self.ignore_info_vlan_1 +
                            self.ignore_port_mapping + self.ignore_stpd_info +
@@ -2258,7 +2258,7 @@ class IntegrationTest(unittest.TestCase):
         self.verify_output('test.xsf', ['enable telnet\n'],
                            self.default_ignores)
         self.verify_output('stderr', ['INFO: Outbound telnet is always '
-                                      'enabled on EXOS\n'],
+                                      'enabled on XOS\n'],
                            self.default_ignores + self.ignore_outfile +
                            self.ignore_lag_info + self.ignore_info_vlan_1 +
                            self.ignore_port_mapping + self.ignore_stpd_info +
@@ -2768,7 +2768,7 @@ class IntegrationTest(unittest.TestCase):
                            [])
         self.stderrToFile(ret.stderr, 'stderr')
         self.verify_output('stderr',
-                           ['WARN: EXOS uses unicast SNTP if an SNTP server is'
+                           ['WARN: XOS uses unicast SNTP if an SNTP server is'
                             ' configured\n'
                             ],
                            [])
@@ -2839,7 +2839,7 @@ class IntegrationTest(unittest.TestCase):
                            [])
         self.stderrToFile(ret.stderr, 'stderr')
         self.verify_output('stderr',
-                           ['WARN: EXOS cannot disable switched virtual '
+                           ['WARN: XOS cannot disable switched virtual '
                             'interfaces, ignoring shutdown state of interface'
                             ' VLAN 1\n',
                             'ERROR: Both SVI and host management IP '
@@ -2926,7 +2926,7 @@ class IntegrationTest(unittest.TestCase):
                            [])
         self.stderrToFile(ret.stderr, 'stderr')
         self.verify_output('stderr',
-                           ['NOTICE: EXOS uses a global list of BOOTP / DHCP'
+                           ['NOTICE: XOS uses a global list of BOOTP / DHCP'
                             ' relay servers instead of per VLAN relay '
                             'servers\n',
                             'NOTICE: enabling BOOTP / DHCP relay on all '
@@ -2967,7 +2967,7 @@ class IntegrationTest(unittest.TestCase):
                            [])
         self.stderrToFile(ret.stderr, 'stderr')
         self.verify_output('stderr',
-                           ['NOTICE: EXOS uses a global list of BOOTP / DHCP'
+                           ['NOTICE: XOS uses a global list of BOOTP / DHCP'
                             ' relay servers instead of per VLAN relay '
                             'servers\n',
                             'NOTICE: enabling BOOTP / DHCP relay on all '
@@ -3756,10 +3756,10 @@ class IntegrationTest(unittest.TestCase):
                                   expect_stderr=True)
         self.stderrToFile(ret.stderr, 'stderr')
         self.verify_output('stderr', [
-            'WARN: EXOS can only map configured VLANs to MST instances, the '
+            'WARN: XOS can only map configured VLANs to MST instances, the '
             'following VLANs have been omitted from MST instance 1: [4, 10, '
             '100, 102, 104, 200, 666, 1000]\n',
-            'WARN: EXOS can only map configured VLANs to MST instances, the '
+            'WARN: XOS can only map configured VLANs to MST instances, the '
             'following VLANs have been omitted from MST instance 2: [20, 101, '
             '103, 105, 300]\n',
             ], [])
@@ -3871,6 +3871,24 @@ class IntegrationTest(unittest.TestCase):
             '\n'
             ], [])
         self.assertEqual(ret.returncode, 0, "Wrong exit code")
+
+    def test_case_216(self):  # no reserved keyword account names
+        self.create_input('accounts.cfg',
+                          ['set system login cli super-user enable\n',
+                           ])
+        ret = self.script_env.run(self.script, 'accounts.cfg',
+                                  '--ignore-defaults', '--log-level=WARN',
+                                  expect_stderr=True)
+        self.verify_output('accounts.xsf',
+                           ['create account admin acc_cli\n',
+                            ],
+                           [])
+        self.stderrToFile(ret.stderr, 'stderr')
+        self.verify_output('stderr',
+                           ['WARN: Replaced account name "cli" with "acc_cli"'
+                            ' because "cli" is a reserved keyword in XOS\n',
+                            ],
+                           [])
 
 
 if __name__ == '__main__':

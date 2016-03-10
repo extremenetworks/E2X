@@ -25,11 +25,11 @@
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
 
-""" XOS_write implements writing of EXOS configuration commands.
+""" XOS_write implements writing of XOS configuration commands.
 
 Classes:
 XosConfigWriter, a specialization (subclass) of ConfigWriter, implements
-EXOS specific methods for feature modules.
+XOS specific methods for feature modules.
 """
 
 import Switch
@@ -38,9 +38,9 @@ import Utils
 
 class XosConfigWriter(Switch.ConfigWriter):
 
-    """ConfigWriter specialization (subclass) for EXOS.
+    """ConfigWriter specialization (subclass) for XOS.
 
-    XosConfigWriter implements writing of EXOS configuration commands
+    XosConfigWriter implements writing of XOS configuration commands
     according to the configuration of the (target) switch model. Writing
     is separated in feature models, called from the generic ConfigWriter
     class. There is one method per feature module.
@@ -61,6 +61,56 @@ class XosConfigWriter(Switch.ConfigWriter):
         trans_dict = (str.maketrans('"<>: &*', '_______') if not allow_space
                       else str.maketrans('"<>:&*', '______'))
         return name.translate(trans_dict)
+
+    def _is_exos_keyword(self, word):
+        """Replace reserved keywords by prepending a prefix."""
+
+        # reserved keywords taken from XOS 16.1 User Guide
+        reserved_keywords = {
+            'aaa', 'access-list', 'account', 'accounts', 'all', 'bandwidth',
+            'banner', 'bfd', 'bgp', 'bootp', 'bootprelay', 'brm', 'bvlan',
+            'cancel', 'cfgmgr', 'cfm', 'checkpoint-data', 'clear-flow', 'cli',
+            'cli-config-logging', 'clipaging', 'configuration', 'configure',
+            'continuous', 'count', 'counters', 'cpu-monitoring', 'cvlan',
+            'debug', 'debug-mode', 'devmgr', 'dhcp', 'dhcp-client',
+            'dhcp-server', 'diagnostics', 'diffserv', 'dns-client',
+            'dont-fragment', 'dos-protect', 'dot1ag', 'dot1p', 'dot1q', 'ds',
+            'eaps', 'edp', 'egress', 'elrp', 'elrp-client', 'elsm', 'ems',
+            'epm', 'esrp', 'fabric', 'failover', 'failsafe-account', 'fans',
+            'fdb', 'fdbentry', 'firmware', 'flood-group', 'flooding',
+            'flow-control', 'flow-redirect', 'forwarding', 'from', 'get',
+            'hal', 'hclag', 'heartbeat', 'icmp', 'identity-management',
+            'idletimeout', 'idmgr', 'igmp', 'image', 'ingress', 'inline-power',
+            'internal-memory', 'interval', 'iob-debug-level', 'iparp',
+            'ipconfig', 'ipforwarding', 'ipmc', 'ipmcforwarding', 'ipmroute',
+            'ip-mtu', 'ip-option', 'iproute', 'ip-security', 'ipstats', 'ipv4',
+            'IPv4', 'ipv6', 'IPv6', 'ipv6acl', 'irdp', 'isid', 'isis',
+            'jumbo-frame', 'jumbo-frame-size', 'l2stats', 'l2vpn', 'lacp',
+            'learning', 'learning-domain', 'license', 'license-info',
+            'licenses', 'lldp', 'log', 'loopback-mode', 'mac', 'mac-binding',
+            'mac-lockdown-timeout', 'management', 'mcast', 'memory',
+            'memorycard', 'meter', 'mirroring', 'mld', 'mpls', 'mrinfo',
+            'msdp', 'msgsrv', 'msm', 'msm-failover', 'mstp', 'mtrace',
+            'multiple-response-timeout', 'mvr', 'neighbor-discovery',
+            'netlogin', 'nettools', 'node', 'nodemgr', 'odometers', 'ospf',
+            'ospfv3', 'pim', 'policy', 'ports', 'power', 'primary',
+            'private-vlan', 'process', 'protocol', 'put', 'qosprofile',
+            'qosscheduler', 'radius', 'radius-accounting', 'rip', 'ripng',
+            'rmon', 'router-discovery', 'rtmgr', 'safe-default-script',
+            'script', 'secondary', 'session', 'sflow', 'sharing', 'show',
+            'slot', 'slot-poll-interval', 'smartredundancy', 'snmp', 'snmpv3',
+            'sntp-client', 'source', 'ssl', 'stacking', 'stacking-support',
+            'stack-topology', 'start-size', 'stp', 'stpd', 'subvlan-proxy-arp',
+            'svlan', 'switch', 'switch-mode', 'sys-health-check', 'syslog',
+            'sys-recovery-level', 'tacacs', 'tacacs-accounting',
+            'tacacs-authorization', 'tech', 'telnet', 'telnetd', 'temperature',
+            'tftpd', 'thttpd', 'time', 'timeout', 'timezone', 'tos', 'traffic',
+            'trusted-ports', 'trusted-servers', 'ttl', 'tunnel', 'udp',
+            'udp-echo-server', 'udp-profile', 'update', 'upm', 'var',
+            'version', 'virtual-router', 'vlan', 'vman', 'vpls', 'vr', 'vrrp',
+            'watchdog', 'web', 'xmlc', 'xmld', 'xml-mode', 'xml-notification',
+        }
+        return word in reserved_keywords
 
     def port(self):
         conf, err = [], []
@@ -148,7 +198,7 @@ class XosConfigWriter(Switch.ConfigWriter):
                 acl_lst = p.get_ipv4_acl_in()
                 acl_id = None
                 if len(acl_lst) > 1:
-                    err.append('ERROR: EXOS allows only one ACL per port (' +
+                    err.append('ERROR: XOS allows only one ACL per port (' +
                                'port "' + p.get_name() + '")')
                 elif len(acl_lst) == 1:
                     acl_id = acl_lst[0]
@@ -223,14 +273,19 @@ class XosConfigWriter(Switch.ConfigWriter):
     def _normalize_vlan(self, vlan):
         err = []
         v_name = vlan.get_name()
-        if v_name and v_name.lower() == 'mgmt':
-            err.append('ERROR: Cannot use name "Mgmt" for regular VLAN')
-            v_name = None
-            vlan.set_name(v_name)
-        if v_name and ' ' in v_name:
-            err.append('NOTICE: Replaced " " with "_" in VLAN name "' +
-                       v_name + '"')
-            v_name = v_name.replace(' ', '_')
+        if v_name:
+            if v_name.lower() == 'mgmt':
+                err.append('ERROR: Cannot use name "Mgmt" for regular VLAN')
+                v_name = None
+            elif ' ' in v_name:
+                err.append('NOTICE: Replaced " " with "_" in VLAN name "' +
+                           v_name + '"')
+                v_name = v_name.replace(' ', '_')
+            elif self._is_exos_keyword(v_name):
+                err.append('NOTICE: Replaced VLAN name "' + v_name +
+                           '" with "vl_' + v_name + '" because "' + v_name +
+                           '" is a reserved keyword in XOS')
+                v_name = 'vl_' + v_name
             vlan.set_name(v_name)
         v_tag = vlan.get_tag()
         if not v_name and not v_tag:
@@ -371,7 +426,7 @@ class XosConfigWriter(Switch.ConfigWriter):
             err.extend(e)
             ipv4_acl_in_lst = vlan.get_ipv4_acl_in()
             if len(ipv4_acl_in_lst) > 1:
-                err.append('ERROR: Only one ACL per VLAN possible with EXOS' +
+                err.append('ERROR: Only one ACL per VLAN possible with XOS' +
                            ' (VLAN "' + vlan.get_name() + '", tag ' +
                            str(vlan.get_tag()) + ', ACLs: ' +
                            str(ipv4_acl_in_lst) + ')')
@@ -399,7 +454,7 @@ class XosConfigWriter(Switch.ConfigWriter):
                                 'secondary-ipaddress ' + ipv4_addr[0] + ' ' +
                                 ipv4_addr[1])
             if vlan.get_svi_shutdown() is True:
-                err.append('WARN: EXOS cannot disable switched virtual '
+                err.append('WARN: XOS cannot disable switched virtual '
                            'interfaces, ignoring shutdown state of interface '
                            'VLAN ' + str(vlan.get_tag()))
             for dhcp_relay in vlan.get_ipv4_helper_addresses():
@@ -408,7 +463,7 @@ class XosConfigWriter(Switch.ConfigWriter):
                 if c not in conf:
                     conf.append(c)
                 if not notified_about_global_bootprelay:
-                    err.append('NOTICE: EXOS uses a global list of BOOTP / '
+                    err.append('NOTICE: XOS uses a global list of BOOTP / '
                                'DHCP relay servers instead of per VLAN relay '
                                'servers')
                     notified_about_global_bootprelay = True
@@ -667,7 +722,7 @@ class XosConfigWriter(Switch.ConfigWriter):
                             if self._switch.get_vlan(tag=v_tag) is not None:
                                 err.append('ERROR: Existing VLAN ' +
                                            str(v_tag) + ' mapped to MST '
-                                           'instance 0 (CIST), but EXOS cannot'
+                                           'instance 0 (CIST), but XOS cannot'
                                            ' map any VLANs to the CIST')
                         stp.set_vlans_reason(reason)
                     else:
@@ -692,7 +747,7 @@ class XosConfigWriter(Switch.ConfigWriter):
                             if self._switch.get_vlan(tag=v_tag) is None:
                                 omitted_vlans.append(v_tag)
                         if omitted_vlans:
-                            err.append('WARN: EXOS can only map configured '
+                            err.append('WARN: XOS can only map configured '
                                        'VLANs to MST instances, the following '
                                        'VLANs have been omitted from MST '
                                        'instance ' + str(sid) + ': ' +
@@ -871,7 +926,7 @@ class XosConfigWriter(Switch.ConfigWriter):
         sysname = self._switch.get_snmp_sys_name()
         if prompt and sysname:
             if prompt != sysname:
-                err.append('WARN: The EXOS prompt is derived from the snmp '
+                err.append('WARN: The XOS prompt is derived from the snmp '
                            'system name, ignoring the configured prompt')
             self._switch.set_prompt(prompt, 'written')
             prompt = None
@@ -910,7 +965,7 @@ class XosConfigWriter(Switch.ConfigWriter):
         if banner_login:
             banner_lines = banner_login.split('\n')
             if '' in banner_lines:
-                err.append('WARN: EXOS banner cannot contain empty lines, '
+                err.append('WARN: XOS banner cannot contain empty lines, '
                            'omitting empty lines')
                 banner_lines = [l for l in banner_lines if l]
             conf_line = 'configure banner before-login'
@@ -930,7 +985,7 @@ class XosConfigWriter(Switch.ConfigWriter):
         if banner_motd:
             banner_lines = banner_motd.split('\n')
             if '' in banner_lines:
-                err.append('WARN: EXOS banner cannot contain empty lines, '
+                err.append('WARN: XOS banner cannot contain empty lines, '
                            'omitting empty lines')
                 banner_lines = [l for l in banner_lines if l]
             conf_line = 'configure banner after-login'
@@ -949,9 +1004,9 @@ class XosConfigWriter(Switch.ConfigWriter):
         elif telnet_in_reason and telnet_in_reason.startswith('transfer'):
             conf.append('enable telnet')
         if telnet_out is not None and not telnet_out:
-            err.append('WARN: Outbound telnet cannot be disabled on EXOS')
+            err.append('WARN: Outbound telnet cannot be disabled on XOS')
         elif telnet_out_reason and telnet_out_reason.startswith('transfer'):
-            err.append('INFO: Outbound telnet is always enabled on EXOS')
+            err.append('INFO: Outbound telnet is always enabled on XOS')
         self._switch.set_telnet_inbound(telnet_in, 'written')
         self._switch.set_telnet_outbound(telnet_out, 'written')
         # ssh
@@ -971,7 +1026,7 @@ class XosConfigWriter(Switch.ConfigWriter):
                 err.append(ssh_xmod_notice)
                 ssh_xmod_notice_added = True
         if ssh_out is not None and not ssh_out:
-            err.append('WARN: Outbound ssh cannot be disabled on EXOS')
+            err.append('WARN: Outbound ssh cannot be disabled on XOS')
         elif ssh_out_reason and ssh_out_reason.startswith('transfer'):
             if not ssh_xmod_notice_added:
                 err.append('NOTICE: ssh.xmod needs to be installed for SSH')
@@ -995,7 +1050,7 @@ class XosConfigWriter(Switch.ConfigWriter):
                        ' HTTPS to work (configure ssl certificate)')
         if not https and ssl:
             err.append('WARN: SSL cannot be enabled independently from ' +
-                       'HTTPS on EXOS')
+                       'HTTPS on XOS')
         self._switch.set_ssl(ssl, 'written')
         self._switch.set_http(http, 'written')
         self._switch.set_http_secure(https, 'written')
@@ -1097,21 +1152,21 @@ class XosConfigWriter(Switch.ConfigWriter):
             port = sls.get_port()
             severity = sls.get_severity()
             state = sls.get_state()
-            # EXOS needs at least an IP and a facility
+            # XOS needs at least an IP and a facility
             if ip is None:
-                err.append('ERROR: A SysLog target on EXOS needs an IP address'
+                err.append('ERROR: A SysLog target on XOS needs an IP address'
                            ' (set logging server ' + str(idx) + ' ...)')
                 continue
             if facility is None:
                 facility = sls.get_default_facility()
             if facility is None:
-                err.append('ERROR: A SysLog target on EXOS needs a facility'
+                err.append('ERROR: A SysLog target on XOS needs a facility'
                            ' (set logging server ' + str(idx) + ' ...)')
                 continue
             if facility not in {"local0", "local1", "local2", "local3",
                                 "local4", "local5", "local6", "local7"}:
                 err.append('ERROR: SysLog facility "' + facility + '" is not'
-                           'supported on EXOS (set logging server ' +
+                           'supported on XOS (set logging server ' +
                            str(idx) + ' ...)')
                 continue
             # try to fill in some (optional) defaults
@@ -1119,7 +1174,7 @@ class XosConfigWriter(Switch.ConfigWriter):
                 port = sls.get_default_port()
             if severity is None:
                 severity = sls.get_default_severity()
-            # translate EOS severity number to EXOS name
+            # translate EOS severity number to XOS name
             if severity is not None and severity not in xos_severities:
                 severity = severity_level_mapping[severity]
             c = 'configure syslog add ' + str(ip)
@@ -1152,7 +1207,7 @@ class XosConfigWriter(Switch.ConfigWriter):
                 conf.append(c)
             # tell about ignoring the description
             if description:
-                err.append('NOTICE: EXOS cannot add descriptions to SysLog'
+                err.append('NOTICE: XOS cannot add descriptions to SysLog'
                            ' servers (set logging server ' + str(idx) + ')')
             sls.set_is_written(True)
         # SNTP Server
@@ -1183,7 +1238,7 @@ class XosConfigWriter(Switch.ConfigWriter):
             conf.append(c)
             sntp_server_list[1].set_is_written(True)
         if len(sntp_server_list) > 2:
-            err.append('ERROR: EXOS supports at most two SNTP servers')
+            err.append('ERROR: XOS supports at most two SNTP servers')
         # SNTP Client
         sntp_client = self._switch.get_sntp_client()
         if sntp_client == 'unicast':
@@ -1195,7 +1250,7 @@ class XosConfigWriter(Switch.ConfigWriter):
                 self._switch.set_sntp_client(sntp_client, 'written')
         elif sntp_client == 'broadcast':
             if sntp_server_list:
-                err.append('WARN: EXOS uses unicast SNTP if an SNTP server is'
+                err.append('WARN: XOS uses unicast SNTP if an SNTP server is'
                            ' configured')
             conf.append('enable sntp-client')
             self._switch.set_sntp_client(sntp_client, 'written')
@@ -1231,7 +1286,7 @@ class XosConfigWriter(Switch.ConfigWriter):
                     (self._switch.get_tz_dst_start_reason() == 'default' or
                      self._switch.get_tz_dst_end_reason() == 'default' or
                      self._switch.get_tz_dst_off_min_reason() == 'default')):
-                err.append('NOTICE: Using EXOS default value(s) for daylight'
+                err.append('NOTICE: Using XOS default value(s) for daylight'
                            'saving time (DST)')
             if tz_dst_name:
                 c += 'name ' + tz_dst_name + ' '
@@ -1296,7 +1351,7 @@ class XosConfigWriter(Switch.ConfigWriter):
             if r_realm != 'management-access':
                 continue
             if mgmt_acc_rad_srv_cnt > 1:
-                err.append('ERROR: EXOS supports at most two RADIUS servers'
+                err.append('ERROR: XOS supports at most two RADIUS servers'
                            ' for management access')
                 break
             r_ip = r.get_ip()
@@ -1317,7 +1372,7 @@ class XosConfigWriter(Switch.ConfigWriter):
                 conf.append(c)
                 r.set_is_written(True)
             elif not reported_no_rad_client_ip_error:
-                err.append('ERROR: EXOS needs RADIUS client IP, but cannot'
+                err.append('ERROR: XOS needs RADIUS client IP, but cannot'
                            ' determine EOS RADIUS client IP')
                 err.append('NOTICE: EOS uses either the host IP or the'
                            ' Loopback 0 IP as RADIUS client IP by default')
@@ -1372,7 +1427,7 @@ class XosConfigWriter(Switch.ConfigWriter):
         for idx in tac_idx_lst:
             t = self._switch.get_tacacs_server(idx)
             if tac_srv_cnt > 1:
-                err.append('ERROR: EXOS supports at most two TACACS+ servers')
+                err.append('ERROR: XOS supports at most two TACACS+ servers')
                 break
             t_ip = t.get_ip()
             t_port = t.get_port()
@@ -1397,7 +1452,7 @@ class XosConfigWriter(Switch.ConfigWriter):
                     conf.append(c2)
                 t.set_is_written(True)
             elif not reported_no_tac_client_ip_error:
-                err.append('ERROR: EXOS needs TACACS+ client IP, but cannot'
+                err.append('ERROR: XOS needs TACACS+ client IP, but cannot'
                            ' determine EOS TACACS+ client IP')
                 err.append('NOTICE: On EOS, TACACS+ uses either the host IP'
                            ' or the Loopback 0 IP as TACACS+ client IP by'
@@ -1440,7 +1495,7 @@ class XosConfigWriter(Switch.ConfigWriter):
         # rw is not mapped -> just warn
         # ro is mapped to user -> copy settings
         if 'rw' in account_names:
-            err.append('NOTICE: Ignoring user account "rw" as EXOS does not'
+            err.append('NOTICE: Ignoring user account "rw" as XOS does not'
                        ' differentiate super-user rights from read-write')
             acc_rw = self._switch.get_user_account('rw')
             acc_rw.set_is_written(True)
@@ -1470,6 +1525,11 @@ class XosConfigWriter(Switch.ConfigWriter):
             acc = self._switch.get_user_account(a_name)
             a_pass = acc.get_password()
             if not acc.get_is_default():
+                if self._is_exos_keyword(a_name):
+                    err.append('WARN: Replaced account name "' + a_name + '"'
+                               ' with "acc_' + a_name + '" because "' +
+                               a_name + '" is a reserved keyword in XOS')
+                    a_name = 'acc_' + a_name
                 c = 'create account '
                 if acc.get_type() in {'super-user', 'read-write'}:
                     c += 'admin '
@@ -1485,11 +1545,11 @@ class XosConfigWriter(Switch.ConfigWriter):
                            '" non-interactively')
                 err.append('INFO: Password for default user account "' +
                            a_name + '" can be configured interactively using '
-                           '"configure account ' + a_name + '" on EXOS')
+                           '"configure account ' + a_name + '" on XOS')
             if not a_pass:
                 err.append('NOTICE: User account "' + a_name + '" has no'
                            ' password, consider setting with "configure'
-                           ' account ' + a_name + '" on EXOS')
+                           ' account ' + a_name + '" on XOS')
             a_state = acc.get_state()
             if a_state == 'disable':
                 conf.append('disable account ' + a_name)
@@ -1526,7 +1586,7 @@ class XosConfigWriter(Switch.ConfigWriter):
                                 'secondary-ipaddress ' + ipv4_addr[0] + ' ' +
                                 ipv4_addr[1])
             if lo.get_svi_shutdown() is True:
-                err.append('WARN: EXOS cannot disable switched virtual '
+                err.append('WARN: XOS cannot disable switched virtual '
                            'interfaces, ignoring shutdown state of interface '
                            'Loopback ' + str(lo.get_number()))
         # IPv4 routes need to come after VLAN IPv4 addresses

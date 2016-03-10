@@ -25,7 +25,7 @@
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
 
-"""Definition of EXOS switch attributes and models.
+"""Definition of XOS switch attributes and models.
 
 Classes:
 XosSwitch defines attributes specific to ExtremeXOS Network Operating
@@ -57,15 +57,15 @@ import XOS_write
 
 class XosSwitch(Switch.Switch):
 
-    """EXOS specific attributes for a swicht.
+    """XOS specific attributes for a switch.
 
     Derived from the Switch class, the XosSwitch class describes a model for
     ExtremeXOS Network Operating System based switches. Subclass XosSwitch to
     describe a specific switch model.
 
     Methods:
-    apply_default_settings() applies EXOS defaults to the switch.
-    apply_default_lag_settings() applies EXOS LAG defaults to the switch.
+    apply_default_settings() applies XOS defaults to the switch.
+    apply_default_lag_settings() applies XOS LAG defaults to the switch.
     """
 
     def __init__(self):
@@ -85,7 +85,7 @@ class XosSwitch(Switch.Switch):
         return name
 
     def apply_default_settings(self):
-        """Apply EXOS default settings."""
+        """Apply XOS default settings."""
         reason = 'default'
         for p in self._ports:
             self._apply_default_port_settings(p)
@@ -128,7 +128,7 @@ class XosSwitch(Switch.Switch):
         super().apply_default_settings()
 
     def _apply_default_port_settings(self, port):
-        """Apply EXOS default port settings."""
+        """Apply XOS default port settings."""
         reason = 'default'
         port.set_auto_neg(True, reason)
         port.set_admin_state(True, reason)
@@ -139,7 +139,7 @@ class XosSwitch(Switch.Switch):
         port.set_stp_bpdu_guard_recovery_time(300, reason)
 
     def apply_default_lag_settings(self, lag):
-        """Apply EXOS default LAG settings (same as port)."""
+        """Apply XOS default LAG settings (same as port)."""
         self._apply_default_port_settings(lag)
 
     def create_lag_name(self, lag_number, lag_ports):

@@ -8,7 +8,7 @@
 {"dir":["show version image","ls"]}
 {"ip route 0.0.0.0 0.0.0.0 192.168.0.1":"configure iproute add default 192.168.0.1 vr VR-Default"}
 {"ip route 192.168.2.0 255.255.255.0 192.168.0.1":"configure iproute add 192.168.2.0 255.255.255.0 192.168.0.1 vr VR-Default"}
-{"no access-list 89":["rm <ACL_NAME>.pol","% ACLs are stored as .pol files on EXOS"]}
+{"no access-list 89":["rm <ACL_NAME>.pol","% ACLs are stored as .pol files on XOS"]}
 {"reset":"reboot"}
 {"reset 1":"reboot slot 1"}
 {"save config":"save configuration"}
@@ -27,11 +27,11 @@
 {"set port mirroring create ge.1.1 ge.1.2":["create mirror <MIRROR_NAME>", "enable mirror <MIRROR_NAME> to port <DESTINATION_PORT>", "configure mirror <MIRROR_NAME> add port <SOURCE_PORT> ingress-and-egress"]}
 {"set port trap ge.1.1 enable":"enable snmp traps port-up-down ports <PORTSTRING>"}
 {"set port trap ge.1.1 disable":"disable snmp traps port-up-down ports <PORTSTRING>"}
-{"set port vlan test 1000":["configure vlan <VLAN_WITH_TAG_1000> add ports <PORTSTRING>","% Untagged ingress and egress are always the same on EXOS"]}
-{"set port vlan test 1000 modify-egress":["configure vlan <VLAN_WITH_TAG_1000> add ports <PORTSTRING>","% Untagged ingress and egress are always the same on EXOS"]}
+{"set port vlan test 1000":["configure vlan <VLAN_WITH_TAG_1000> add ports <PORTSTRING>","% Untagged ingress and egress are always the same on XOS"]}
+{"set port vlan test 1000 modify-egress":["configure vlan <VLAN_WITH_TAG_1000> add ports <PORTSTRING>","% Untagged ingress and egress are always the same on XOS"]}
 {"set sntp client disable":"disable sntp-client"}
-{"set sntp client broadcast":["enable sntp-client","% EXOS uses unicast mode if an SNTP server is configured"]}
-{"set sntp client unicast":["enable sntp-client","% EXOS uses broadcast mode if no SNTP server is configured"]}
+{"set sntp client broadcast":["enable sntp-client","% XOS uses unicast mode if an SNTP server is configured"]}
+{"set sntp client unicast":["enable sntp-client","% XOS uses broadcast mode if no SNTP server is configured"]}
 {"set sntp server 192.168.0.1 precedence 1":"configure sntp-client {primary|secondary} 192.168.0.1 vr VR-Default"}
 {"set sntp server 192.168.0.1":"configure sntp-client {primary|secondary} 192.168.0.1 vr VR-Default"}
 {"set ssh enabled":"enable ssh2"}
@@ -52,8 +52,8 @@
 {"set telnet enable inbound":"enable telnet"}
 {"set telnet disable all":"disable telnet"}
 {"set telnet disable inbound":"disable telnet"}
-{"set telnet enable outbound":"% Outbound telnet cannot be disabled on EXOS (always enabled)"}
-{"set telnet disable outbound":"% Outbound telnet cannot be disabled on EXOS (always enabled)"}
+{"set telnet enable outbound":"% Outbound telnet cannot be disabled on XOS (always enabled)"}
+{"set telnet disable outbound":"% Outbound telnet cannot be disabled on XOS (always enabled)"}
 {"set time 09/22/2015 10:23:16":"configure time 09 22 2015 10 23 16"}
 {"set time 9:22:15":"configure time <MONTH> <DAY> <YEAR> 9 22 15"}
 {"set time 09/22/2015":"configure time 09 22 2015 <HOUR> <MINUTE> <SECOND>"}

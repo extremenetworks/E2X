@@ -101,11 +101,11 @@ def expand_sequence_to_int_list(sequence):
 
 
 def create_compact_sequence(lst):
-    """Create a sequence string from a list of EXOS port names.
+    """Create a sequence string from a list of XOS port names.
 
-    The list needs to be sortable. If possible, EXOS port names
+    The list needs to be sortable. If possible, XOS port names
     will be aggregated in ranges. Note that integers are syntactically
-    valid EXOS port names.
+    valid XOS port names.
 
     The sequence is returned as a string.
 
@@ -173,16 +173,16 @@ def create_compact_sequence(lst):
     for i in lst:
         try:
             slot, port = i.split(':')
-            if name_format is not None and name_format != 'EXOS_STACK':
+            if name_format is not None and name_format != 'XOS_STACK':
                 return ''
             elif name_format is None:
-                name_format = 'EXOS_STACK'
+                name_format = 'XOS_STACK'
         except:
             slot, port = 0, i
-            if name_format is not None and name_format != 'EXOS':
+            if name_format is not None and name_format != 'XOS':
                 return ''
             elif name_format is None:
-                name_format = 'EXOS'
+                name_format = 'XOS'
         try:
             slot, port = int(slot), int(port)
         except:

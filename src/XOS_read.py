@@ -25,7 +25,7 @@
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
 
-"""XOS_read provides the comment character for EXOS."""
+"""XOS_read provides the comment character for XOS."""
 
 import Switch
 
