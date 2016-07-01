@@ -274,7 +274,7 @@ class Translator:
                  ' <SECOND>',
                  ''),
                 (r'show mac address (\S+)', r'show fdb \1', ''),
-                (r'show mac port (\S+)', 'show fdb ports <PORTSTRING>', ''),
+                (r'show mac port( \S+)?', 'show fdb ports <PORTSTRING>', ''),
                 (r'show mac fid (\S+)',
                  r'show fdb vlan <VLAN_WITH_TAG_\1>',
                  ''),
@@ -298,6 +298,33 @@ class Translator:
                  'enable mirror <MIRROR_NAME> to port <DESTINATION_PORT>\n'
                  'configure mirror <MIRROR_NAME> add port <SOURCE_PORT>'
                  ' ingress-and-egress', ''),
+                (r'show port alias( \S+)?',
+                 'show ports [<PORTSTRING>] description', ''),
+                (r'show port inlinepower( \S+)?',
+                 'show inline-power info ports <PORTSTRING>', ''),
+                (r'set port alias \S+\s+(\S+)?',
+                 'configure ports <PORTSTRING> display-string \\1\n'
+                 r'configure ports <PORTSTRING> description-string \1', ''),
+                (r'set vlan egress (\d+) \S+ tagged',
+                 r'configure vlan <VLAN_WITH_TAG_\1> add ports <PORTSTRING>'
+                 ' tagged', ''),
+                (r'set port inlinepower (\S+) admin off',
+                 'disable inline-power ports <PORTSTRING>', ''),
+                (r'set port inlinepower (\S+) admin auto',
+                 'enable inline-power ports <PORTSTRING>', ''),
+                (r'clear port vlan \S+',
+                 r'configure vlan <VLAN_NAME> delete ports <PORTSTRING>'
+                 '\nconfigure vlan Default add ports <PORTSTRING> untagged',
+                 'You need one command per untagged VLAN. XOS always changes'
+                 ' VLAN egress, too'),
+                (r'clear vlan egress (\d+) \S+',
+                 r'configure vlan <VLAN_WITH_TAG_\1> delete ports'
+                 ' <PORTSTRING>',
+                 'You need one command per VLAN.'
+                 ' XOS deletes VLAN ingress from the port as well.'),
+                (r'show port transceiver(\s+\S+)?(\s+all)?',
+                 'show ports [<PORTSTRING>] transceiver information detail\n'
+                 'debug hal show optic-info [ddmi|eeprom] port <PORT>', ''),
                 )
             self.pattern_replacements = list(PatternReplacement(p, r, h) for
                                              p, r, h in pat_repl_lst)

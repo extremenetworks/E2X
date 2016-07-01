@@ -42,7 +42,7 @@ import CM
 from InteractiveModeHandler import InteractiveModeHandler
 
 progname = 'e2x'
-progver = '1.0.1'
+progver = '1.0.2'
 progdesc = """\
 Translate ExtremeEOS switch configuration commands to ExtremeXOS. If no
 FILEs are specified, input is read from STDIN and written to STDOUT, and
@@ -355,35 +355,44 @@ There must not be any whitespace in the list of switch models!
                 msg = 'NOTICE: Writing translated configuration to file'
                 msg += ' "' + outname + '"'
                 err.insert(0, msg)
+
+            # print configuration commands, defer ACLs
+            acl_list = []
             for l in t_conf:
                 if isinstance(l, str):
                     print(l.rstrip(), file=out)
                 elif isinstance(l, list):
-                    # create ACL file, XOS only!
-                    acl_dir = ''
-                    if outname != '-':
-                        acl_dir = outname[:-3] + 'acls'
-                        if not os.path.exists(acl_dir):
-                            os.mkdir(acl_dir)
-                    acl_name = l.pop(0) + '.pol'
-                    acl_entries = ''
-                    for acl_entry in l:
-                        acl_entries += acl_entry
-                    if out == sys.stdout:
-                        acl_str = acl_name + '\n' + acl_entries.rstrip()
-                        print(c.target.get_cmd().get_comment(), acl_str,
-                              file=out)
-                    else:
-                        acl_out = open(acl_dir + '/' + acl_name, 'w')
-                        msg = ('NOTICE: Writing translated ACL file "' +
-                               acl_dir + '/' + acl_name + '"')
-                        err.append(msg)
-                        print(acl_entries.rstrip(), file=acl_out)
-                        acl_out.close()
+                    acl_list.append(l)
                 else:
                     err.append('ERROR: Unknown configuration line format: "' +
                                str(l) + '"')
                     return_value = 1
+
+            # print ACLs after any other configuration statements
+            for l in acl_list:
+                # create ACL file, XOS only!
+                acl_dir = ''
+                if outname != '-':
+                    acl_dir = outname[:-3] + 'acls'
+                    if not os.path.exists(acl_dir):
+                        os.mkdir(acl_dir)
+                acl_name = l.pop(0) + '.pol'
+                acl_entries = ''
+                for acl_entry in l:
+                    acl_entries += acl_entry
+                if out == sys.stdout:
+                    acl_str = acl_name + '\n' + acl_entries.rstrip()
+                    print(c.target.get_cmd().get_comment(), acl_str,
+                          file=out)
+                else:
+                    acl_out = open(acl_dir + '/' + acl_name, 'w')
+                    msg = ('NOTICE: Writing translated ACL file "' +
+                           acl_dir + '/' + acl_name + '"')
+                    err.append(msg)
+                    print(acl_entries.rstrip(), file=acl_out)
+                    acl_out.close()
+
+            # print messages as comments if requested
             if args.messages_as_comments:
                 if err:
                     print('', file=out)
@@ -391,6 +400,8 @@ There must not be any whitespace in the list of switch models!
                     if (l and (not l.startswith('DEBUG') or args.debug)):
                         print(c.target.get_cmd().get_comment(), l.rstrip(),
                               file=out)
+
+            # flush output to ensure that errors are printed after translation
             out.flush()
             if outname != '-':
                 out.close()

@@ -1,9 +1,11 @@
 {"clear config":["unconfigure switch","% Deletes all ip-addresses except address of management port"]}
 {"clear config all":["unconfigure switch all","% All ip-addresses are deleted"]}
 {"clear ip address":"unconfigure vlan Default ipaddress"}
+{"clear port vlan ge.1.1":["configure vlan <VLAN_NAME> delete ports <PORTSTRING>","configure vlan Default add ports <PORTSTRING> untagged","% You need one command per untagged VLAN. XOS always changes VLAN egress, too"]}
 {"clear system login ro":"delete account ro"}
 {"clear system login rw":"delete account rw"}
 {"clear system login name":"delete account name"}
+{"clear vlan egress 33 ge.1.33":["configure vlan <VLAN_WITH_TAG_33> delete ports <PORTSTRING>","% You need one command per VLAN. XOS deletes VLAN ingress from the port as well."]}
 {"copy tftp://192.168.0.1/test/test.img system:image":"download image 192.168.0.1 test/test.img vr VR-Default {primary|secondary}"}
 {"dir":["show version image","ls"]}
 {"ip route 0.0.0.0 0.0.0.0 192.168.0.1":"configure iproute add default 192.168.0.1 vr VR-Default"}
@@ -21,9 +23,12 @@
 {"set logout 0":"disable idletimeout"}
 {"set logout 10":["configure idletimeout 10","enable idletimeout"]}
 {"set password admin":"configure account admin"}
+{"set port alias ge.1.1 MYPORTALIAS":["configure ports <PORTSTRING> display-string MYPORTALIAS","configure ports <PORTSTRING> description-string MYPORTALIAS"]}
 {"set port broadcast ge.1.1 10":"configure ports <PORTSTRING> rate-limit flood broadcast 10"}
 {"set port enable ge.1.1":"enable ports <PORTSTRING>"}
 {"set port disable ge.1.1":"disable ports <PORTSTRING>"}
+{"set port inlinepower ge.1.1 admin off":"disable inline-power ports <PORTSTRING>"}
+{"set port inlinepower ge.1.1 admin auto":"enable inline-power ports <PORTSTRING>"}
 {"set port mirroring create ge.1.1 ge.1.2":["create mirror <MIRROR_NAME>", "enable mirror <MIRROR_NAME> to port <DESTINATION_PORT>", "configure mirror <MIRROR_NAME> add port <SOURCE_PORT> ingress-and-egress"]}
 {"set port trap ge.1.1 enable":"enable snmp traps port-up-down ports <PORTSTRING>"}
 {"set port trap ge.1.1 disable":"disable snmp traps port-up-down ports <PORTSTRING>"}
@@ -58,6 +63,7 @@
 {"set time 9:22:15":"configure time <MONTH> <DAY> <YEAR> 9 22 15"}
 {"set time 09/22/2015":"configure time 09 22 2015 <HOUR> <MINUTE> <SECOND>"}
 {"set time":"configure time <MONTH> <DAY> <YEAR> <HOUR> <MINUTE> <SECOND>"}
+{"set vlan egress 99 ge.1-3.4-7 tagged":"configure vlan <VLAN_WITH_TAG_99> add ports <PORTSTRING> tagged"}
 {"show banner motd":"show banner after-login"}
 {"show banner login":"show banner before-login"}
 {"show config":"show configuration"}
@@ -82,16 +88,25 @@
 {"show mac address 11:22:33:44:55:66":"show fdb 11:22:33:44:55:66"}
 {"show mac fid 10":"show fdb vlan <VLAN_WITH_TAG_10>"}
 {"show mac port ge.1.10":"show fdb ports <PORTSTRING>"}
+{"show mac port":"show fdb ports <PORTSTRING>"}
 {"show neighbors":["show edp ports all", "show lldp neighbors", "show cdp neighbor"]}
 {"show neighbors ge.1.1":["show edp ports <PORTSTRING>", "show lldp ports <PORTSTRING> neighbors", "show cdp neighbor | include \"Port[0-9]+\""]}
+{"show port alias":"show ports [<PORTSTRING>] description"}
+{"show port alias ge.1.1":"show ports [<PORTSTRING>] description"}
 {"show port broadcast ge.1.1":"show ports [<PORTSTRING>] rate-limit flood no-refresh"}
 {"show port broadcast":"show ports [<PORTSTRING>] rate-limit flood no-refresh"}
 {"show port egress ge.1.1":"show ports [<PORTSTRING>] information detail | include (^Port:|Tag =)"}
 {"show port egress":"show ports [<PORTSTRING>] information detail | include (^Port:|Tag =)"}
+{"show port inlinepower ge.2.3-15":"show inline-power info ports <PORTSTRING>"}
+{"show port inlinepower":"show inline-power info ports <PORTSTRING>"}
 {"show port negotiation ge.1.1":"show ports [<PORTSTRING>] configuration no-refresh"}
 {"show port negotiation":"show ports [<PORTSTRING>] configuration no-refresh"}
 {"show port status ge.1.1":"show ports [<PORTSTRING>] no-refresh"}
 {"show port status":"show ports [<PORTSTRING>] no-refresh"}
+{"show port transceiver":["show ports [<PORTSTRING>] transceiver information detail","debug hal show optic-info [ddmi|eeprom] port <PORT>"]}
+{"show port transceiver all":["show ports [<PORTSTRING>] transceiver information detail","debug hal show optic-info [ddmi|eeprom] port <PORT>"]}
+{"show port transceiver ge.1.1":["show ports [<PORTSTRING>] transceiver information detail","debug hal show optic-info [ddmi|eeprom] port <PORT>"]}
+{"show port transceiver ge.1.1 all":["show ports [<PORTSTRING>] transceiver information detail","debug hal show optic-info [ddmi|eeprom] port <PORT>"]}
 {"show port trap ge.1.1":"show ports [<PORTSTRING>] information detail | include (^Port|Link up/down)"}
 {"show port trap":"show ports [<PORTSTRING>] information detail | include (^Port|Link up/down)"}
 {"show port vlan":"show ports [<PORTSTRING>] information detail | include \"(^Port|(Internal|802.1Q) Tag)\""}

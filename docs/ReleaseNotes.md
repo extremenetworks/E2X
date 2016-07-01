@@ -145,7 +145,9 @@ In addition to translating individual command lines, how-tos can be displayed.
 
     clear config [all]
     clear ip address
+    clear port vlan <PORTSTRING>
     clear system login <NAME>
+    clear vlan egress <VLAN> <PORTSTRING>
     copy tftp://<IPV4_ADDRESS>/[<PATH>/]<IMAGE_FILE> system:image
     dir
     ip route <PREFIX> <NETMASK> <GATEWAY>
@@ -159,9 +161,11 @@ In addition to translating individual command lines, how-tos can be displayed.
     set logout 0
     set logout <MINS>
     set password <ACCOUNT>
+    set port alias <PORTSTRING> <ALIAS>
     set port broadcast <PORTSTRING> <NR>
     set port disable <PORTSTRING>
     set port enable <PORTSTRING>
+    set port inlinepower <PORTSTRING> admin {auto|off}
     set port mirroring create <SOURCE_PORT> <DESTINATION_PORT>
     set port trap <PORTSTRING> {enable|disable}
     set port vlan <PORTSTRING> <NR> [modify-egress]
@@ -171,6 +175,7 @@ In addition to translating individual command lines, how-tos can be displayed.
     set system login <NAME> {super-user|read-write|read-only} {enable|disable} [password <PASSWORD>]
     set telnet {enable|disable} {all|inbound|outbound}
     set time
+    set vlan egress <VLAN> <PORTSTRING> tagged
     show banner {login|motd}
     show config [all] [<SECTION>]
     show ip address
@@ -183,14 +188,17 @@ In addition to translating individual command lines, how-tos can be displayed.
     show mac
     show mac address <MACADDRESS>
     show mac fid <VLAN>
-    show mac port <PORTSTRING>
+    show mac port [<PORTSTRING>]
     show neighbors [<PORTSTRING>]
+    show port alias [<PORTSTRING>]
     show port broadcast [<PORTSTRING>]
     show port egress [<PORTSTRING>]
-    show port negotiation <PORTSTRING>
-    show port status <PORTSTRING>
+    show port inlinepower [<PORTSTRING>]
+    show port negotiation [<PORTSTRING>]
+    show port status [<PORTSTRING>]
+    show port transceiver [<PORTSTRING>] [all]
     show port trap [<PORTSTRING>]
-    show port vlan <PORTSTRING>
+    show port vlan [<PORTSTRING>]
     show radius
     show sntp
     show spantree stats [active]

@@ -3890,6 +3890,92 @@ class IntegrationTest(unittest.TestCase):
                             ],
                            [])
 
+    # test that ACL output on STDOUT comes after configuration translation
+    def test_case_217(self):
+        self.create_input('testinput',
+                          ['access-list 1 permit 10.0.0.0 0.255.0.255\n'])
+        ret = self.script_env.run(self.script, '-o-', 'testinput',
+                                  '--quiet')
+        self.assertEqual(ret.stdout,
+                         '''\
+enable jumbo-frame ports 1
+enable jumbo-frame ports 2
+enable jumbo-frame ports 3
+enable jumbo-frame ports 4
+enable jumbo-frame ports 5
+enable jumbo-frame ports 6
+enable jumbo-frame ports 7
+enable jumbo-frame ports 8
+enable jumbo-frame ports 9
+enable jumbo-frame ports 10
+enable jumbo-frame ports 11
+enable jumbo-frame ports 12
+enable jumbo-frame ports 13
+enable jumbo-frame ports 14
+enable jumbo-frame ports 15
+enable jumbo-frame ports 16
+enable jumbo-frame ports 17
+enable jumbo-frame ports 18
+enable jumbo-frame ports 19
+enable jumbo-frame ports 20
+enable jumbo-frame ports 21
+enable jumbo-frame ports 22
+enable jumbo-frame ports 23
+enable jumbo-frame ports 24
+enable jumbo-frame ports 25
+enable jumbo-frame ports 26
+enable jumbo-frame ports 27
+enable jumbo-frame ports 28
+enable jumbo-frame ports 29
+enable jumbo-frame ports 30
+enable jumbo-frame ports 31
+enable jumbo-frame ports 32
+enable jumbo-frame ports 33
+enable jumbo-frame ports 34
+enable jumbo-frame ports 35
+enable jumbo-frame ports 36
+enable jumbo-frame ports 37
+enable jumbo-frame ports 38
+enable jumbo-frame ports 39
+enable jumbo-frame ports 40
+enable jumbo-frame ports 41
+enable jumbo-frame ports 42
+enable jumbo-frame ports 43
+enable jumbo-frame ports 44
+enable jumbo-frame ports 45
+enable jumbo-frame ports 46
+enable jumbo-frame ports 47
+enable jumbo-frame ports 48
+enable jumbo-frame ports 53
+enable jumbo-frame ports 54
+configure stpd s0 delete vlan Default ports all
+disable stpd s0 auto-bind vlan Default
+configure stpd s0 mode mstp cist
+create stpd s1
+configure stpd s1 mode mstp msti 1
+enable stpd s1 auto-bind vlan Default
+enable stpd s0
+enable stpd s1
+enable dhcp vlan Default
+configure idletimeout 5
+# acl_1.pol
+entry 10 {
+  if {
+    source-address 10.0.0.0/255.0.255.0;
+  } then {
+    permit;
+  }
+}
+# next entry added to match EOS ACL implicit deny
+entry 20 {
+  if {
+    source-address 0.0.0.0/0;
+  } then {
+    deny;
+  }
+}
+''')
+
 
 if __name__ == '__main__':
     unittest.main()
