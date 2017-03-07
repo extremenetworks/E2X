@@ -889,7 +889,7 @@ The individual EOS commands shown in the how-to can be translated as well.
 
     $ e2x.py --interactive
     e2x v1.0.0
-    Copyright 2014-2016 Extreme Networks, Inc.  All rights reserved.
+    Copyright 2014-2017 Extreme Networks, Inc.  All rights reserved.
     Use is subject to license terms.
     This is free software, licensed under CDDL 1.0
 

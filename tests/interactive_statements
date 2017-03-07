@@ -1,4 +1,5 @@
 {"clear config":["unconfigure switch","% Deletes all ip-addresses except address of management port"]}
+{"clear  config":["unconfigure switch","% Deletes all ip-addresses except address of management port"]}
 {"clear config all":["unconfigure switch all","% All ip-addresses are deleted"]}
 {"clear ip address":"unconfigure vlan Default ipaddress"}
 {"clear port vlan ge.1.1":["configure vlan <VLAN_NAME> delete ports <PORTSTRING>","configure vlan Default add ports <PORTSTRING> untagged","% You need one command per untagged VLAN. XOS always changes VLAN egress, too"]}
@@ -15,6 +16,8 @@
 {"reset 1":"reboot slot 1"}
 {"save config":"save configuration"}
 {"set boot system test.img":"use image partition {primary|secondary}"}
+{"set flowcontrol disable":["disable flow-control rx-pause ports all", "disable flow-control tx-pause ports all"]}
+{"set flowcontrol enable":["enable flow-control rx-pause ports all", "enable flow-control tx-pause ports all"]}
 {"set ip address 192.168.0.11 mask 255.255.255.0 gateway 192.168.0.1":["configure vlan Default ipaddress 192.168.0.11 255.255.255.0", "configure iproute add default 192.168.0.1"]}
 {"set ip address 192.168.0.11 mask 255.255.255.0":"configure vlan Default ipaddress 192.168.0.11 255.255.255.0"}
 {"set ip address 192.168.0.11":"configure vlan Default ipaddress 192.168.0.11"}
@@ -23,7 +26,8 @@
 {"set logout 0":"disable idletimeout"}
 {"set logout 10":["configure idletimeout 10","enable idletimeout"]}
 {"set password admin":"configure account admin"}
-{"set port alias ge.1.1 MYPORTALIAS":["configure ports <PORTSTRING> display-string MYPORTALIAS","configure ports <PORTSTRING> description-string MYPORTALIAS"]}
+{" set    password    admin ":"configure account admin"}
+{"set  port  alias  ge.1.1  MYPORTALIAS ":["configure ports <PORTSTRING> display-string MYPORTALIAS","configure ports <PORTSTRING> description-string MYPORTALIAS"]}
 {"set port broadcast ge.1.1 10":"configure ports <PORTSTRING> rate-limit flood broadcast 10"}
 {"set port enable ge.1.1":"enable ports <PORTSTRING>"}
 {"set port disable ge.1.1":"disable ports <PORTSTRING>"}
@@ -90,6 +94,7 @@
 {"show mac port ge.1.10":"show fdb ports <PORTSTRING>"}
 {"show mac port":"show fdb ports <PORTSTRING>"}
 {"show neighbors":["show edp ports all", "show lldp neighbors", "show cdp neighbor"]}
+{"  show     neighbors  ":["show edp ports all", "show lldp neighbors", "show cdp neighbor"]}
 {"show neighbors ge.1.1":["show edp ports <PORTSTRING>", "show lldp ports <PORTSTRING> neighbors", "show cdp neighbor | include \"Port[0-9]+\""]}
 {"show port alias":"show ports [<PORTSTRING>] description"}
 {"show port alias ge.1.1":"show ports [<PORTSTRING>] description"}
@@ -104,9 +109,10 @@
 {"show port status ge.1.1":"show ports [<PORTSTRING>] no-refresh"}
 {"show port status":"show ports [<PORTSTRING>] no-refresh"}
 {"show port transceiver":["show ports [<PORTSTRING>] transceiver information detail","debug hal show optic-info [ddmi|eeprom] port <PORT>"]}
-{"show port transceiver all":["show ports [<PORTSTRING>] transceiver information detail","debug hal show optic-info [ddmi|eeprom] port <PORT>"]}
-{"show port transceiver ge.1.1":["show ports [<PORTSTRING>] transceiver information detail","debug hal show optic-info [ddmi|eeprom] port <PORT>"]}
-{"show port transceiver ge.1.1 all":["show ports [<PORTSTRING>] transceiver information detail","debug hal show optic-info [ddmi|eeprom] port <PORT>"]}
+{" show  port  transceiver ":["show ports [<PORTSTRING>] transceiver information detail","debug hal show optic-info [ddmi|eeprom] port <PORT>"]}
+{" show  port  transceiver  all ":["show ports [<PORTSTRING>] transceiver information detail","debug hal show optic-info [ddmi|eeprom] port <PORT>"]}
+{" show  port  transceiver  ge.1.1 ":["show ports [<PORTSTRING>] transceiver information detail","debug hal show optic-info [ddmi|eeprom] port <PORT>"]}
+{" show  port  transceiver  ge.1.1  all ":["show ports [<PORTSTRING>] transceiver information detail","debug hal show optic-info [ddmi|eeprom] port <PORT>"]}
 {"show port trap ge.1.1":"show ports [<PORTSTRING>] information detail | include (^Port|Link up/down)"}
 {"show port trap":"show ports [<PORTSTRING>] information detail | include (^Port|Link up/down)"}
 {"show port vlan":"show ports [<PORTSTRING>] information detail | include \"(^Port|(Internal|802.1Q) Tag)\""}
@@ -124,6 +130,7 @@
 {"show system login":"show accounts"}
 {"show telnet":"show management | include Telnet"}
 {"show time":"show switch | include \"Current Time\""}
+{"show users":"show session"}
 {"show version":["show version","show switch | include \"System Type:\""]}
 {"show vlan static 1000":"show vlan tag 1000"}
 {"show vlan 1000":"show vlan tag 1000"}

@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014-2016 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2017 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -3975,6 +3975,26 @@ entry 20 {
   }
 }
 ''')
+
+    # switched "aadminkey" and "enable" lines from test 53
+    def test_case_218(self):
+        self.runner(['set lacp aadminkey lag.0.6 6\n',
+                     'set port lacp port tg.1.49,50 aadminkey 6\n',
+                     'set port lacp port tg.1.49,50 enable\n'], [],
+                    ['enable sharing 53 grouping 53-54 algorithm address-based'
+                     ' L3 lacp\n',
+                     'configure vlan Default delete ports 54\n'],
+                    self.default_ignores)
+
+    # combined "aadminkey" and "enable" in one line
+    def test_case_219(self):
+        self.runner(['set lacp aadminkey lag.0.1 100\n',
+                     'set port lacp port ge.1.47-48 aadminkey 100 enable\n'],
+                    [],
+                    ['enable sharing 47 grouping 47-48 algorithm address-based'
+                     ' L3 lacp\n',
+                     'configure vlan Default delete ports 48\n'],
+                    self.default_ignores)
 
 
 if __name__ == '__main__':

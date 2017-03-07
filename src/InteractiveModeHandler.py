@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014-2016 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2017 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -44,7 +44,7 @@ class InteractiveModeHandler:
 
         intro = \
             progname + ' v' + progver + '\n' + \
-            'Copyright 2014-2016 Extreme Networks, Inc.  All rights ' \
+            'Copyright 2014-2017 Extreme Networks, Inc.  All rights ' \
             'reserved.\n' \
             'Use is subject to license terms.\n' \
             'This is free software, licensed under CDDL 1.0\n' \

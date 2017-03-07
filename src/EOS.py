@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014-2016 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2017 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -271,7 +271,9 @@ class EosSwitch(Switch.Switch):
 
     def _register_macros(self):
         """Dictionary of supported macro expansion methods."""
-        return {'set lacp static': '_expand_set_lacp_static'}
+        return {'set lacp static': '_expand_set_lacp_static',
+                'set port lacp port': '_expand_set_port_lacp_port',
+                }
 
     def _expand_set_lacp_static(self, line):
         """Expand 'set lacp static' macro command."""
@@ -346,6 +348,22 @@ class EosSwitch(Switch.Switch):
                                     ' disable')
             for line in expanded_lst:
                 error_lst.append('DEBUG: Macro expansion to: ' + line)
+        return expanded_lst, error_lst
+
+    def _expand_set_port_lacp_port(self, line):
+        """Expand 'set port lacp port' aadminkey & enable into two commands."""
+        cmd_lst = line.split()
+        expanded_lst, error_lst = [], []
+        error_lst.append('DEBUG: Macro expansion of: ' + line)
+        if len(cmd_lst) == 8 and (cmd_lst[7] == 'enable' or
+                                  cmd_lst[7] == 'disable'):
+            expanded_lst.append(' '.join(cmd_lst[:7]))
+            expanded_lst.append(' '.join(cmd_lst[:5] + cmd_lst[7:]))
+            for line in expanded_lst:
+                error_lst.append('DEBUG: Macro expansion to: ' + line)
+        else:
+            error_lst.append('DEBUG: No macro to expand')
+            expanded_lst.append(line)
         return expanded_lst, error_lst
 
 

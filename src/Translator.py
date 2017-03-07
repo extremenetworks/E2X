@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014-2016 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2017 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -283,14 +283,14 @@ class Translator:
                  'show stpd <STPD> ports | include " e(R|D|A|B|M)"',
                  ''),
                 ('show spantree stats', 'show stpd detail', ''),
-                ('show neighbors\s+\S+',
+                ('show neighbors \S+',
                  'show edp ports <PORTSTRING>\nshow lldp ports <PORTSTRING>'
                  ' neighbors\nshow cdp neighbor | include "Port[0-9]+"',
                  ''),
                 ('show neighbors',
                  'show edp ports all\nshow lldp neighbors\nshow cdp neighbor',
                  ''),
-                (r'set\s+password\s+(\S+)', r'configure account \1', ''),
+                (r'set password (\S+)', r'configure account \1', ''),
                 (r'no access-list \S+', r'rm <ACL_NAME>.pol',
                  'ACLs are stored as .pol files on XOS'),
                 (r'set port mirroring create \S+ \S+',
@@ -302,7 +302,7 @@ class Translator:
                  'show ports [<PORTSTRING>] description', ''),
                 (r'show port inlinepower( \S+)?',
                  'show inline-power info ports <PORTSTRING>', ''),
-                (r'set port alias \S+\s+(\S+)?',
+                (r'set port alias \S+ (\S+)?',
                  'configure ports <PORTSTRING> display-string \\1\n'
                  r'configure ports <PORTSTRING> description-string \1', ''),
                 (r'set vlan egress (\d+) \S+ tagged',
@@ -322,9 +322,16 @@ class Translator:
                  ' <PORTSTRING>',
                  'You need one command per VLAN.'
                  ' XOS deletes VLAN ingress from the port as well.'),
-                (r'show port transceiver(\s+\S+)?(\s+all)?',
+                (r'show port transceiver( \S+)?( all)?',
                  'show ports [<PORTSTRING>] transceiver information detail\n'
                  'debug hal show optic-info [ddmi|eeprom] port <PORT>', ''),
+                (r'show users', 'show session', ''),
+                ('set flowcontrol disable',
+                 'disable flow-control rx-pause ports all\n'
+                 'disable flow-control tx-pause ports all', ''),
+                ('set flowcontrol enable',
+                 'enable flow-control rx-pause ports all\n'
+                 'enable flow-control tx-pause ports all', ''),
                 )
             self.pattern_replacements = list(PatternReplacement(p, r, h) for
                                              p, r, h in pat_repl_lst)

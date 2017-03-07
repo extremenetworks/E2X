@@ -22,7 +22,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014-2016 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2017 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -42,7 +42,7 @@ import CM
 from InteractiveModeHandler import InteractiveModeHandler
 
 progname = 'e2x'
-progver = '1.0.2'
+progver = '1.0.3'
 progdesc = """\
 Translate ExtremeEOS switch configuration commands to ExtremeXOS. If no
 FILEs are specified, input is read from STDIN and written to STDOUT, and

@@ -20,7 +20,7 @@
 #
 # CDDL HEADER END
 
-# Copyright 2014-2016 Extreme Networks, Inc.  All rights reserved.
+# Copyright 2014-2017 Extreme Networks, Inc.  All rights reserved.
 # Use is subject to license terms.
 
 # This file is part of e2x (translate EOS switch configuration to ExtremeXOS)
@@ -393,6 +393,17 @@ class Translation_test(unittest.TestCase):
         translateList = ['set lacp aadminkey lag.0.1 100',
                          'set port lacp port ge.1.1-2 aadminkey 100',
                          'set port lacp port ge.1.1-2 enable']
+        expected = ['enable sharing 1 grouping 1-2 algorithm address-based L3'
+                    ' lacp']
+        self.cm.set_source_switch('C5K125-48P2')
+        self.cm.set_target_switch('SummitX460-48p+2sf')
+        translatedList, err = self.cm.translate(translateList)
+        for exp in expected:
+            self.assertIn(exp, translatedList)
+
+    def test_translate_dynamic_lag_compact_ok(self):
+        translateList = ['set lacp aadminkey lag.0.1 100',
+                         'set port lacp port ge.1.1-2 aadminkey 100 enable']
         expected = ['enable sharing 1 grouping 1-2 algorithm address-based L3'
                     ' lacp']
         self.cm.set_source_switch('C5K125-48P2')

@@ -155,6 +155,8 @@ In addition to translating individual command lines, how-tos can be displayed.
     reset [<NR>]
     save config
     set boot system <IMAGE_FILE>
+    set flowcontrol disable
+    set flowcontrol enable
     set ip address <IPV4-ADDRESS> [mask <NETMASK> [gateway <IPV4-ADDRESS>]]
     set ip protocol dhcp
     set logging server 1 ip-addr <IPV4-ADDRESS> severity 6 state enable
@@ -211,6 +213,7 @@ In addition to translating individual command lines, how-tos can be displayed.
     show system login
     show telnet
     show time
+    show users
     show version
     show vlan [static] [<NR>]
     show vlan portinfo [port <PORTSTRING>]
